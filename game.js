@@ -141,6 +141,16 @@ const TBTN = {
   dash: { x: 250, y: 133, r: 13, key: "KeyS" },
   sp: { x: 298, y: 112, r: 10, key: "KeyE" },
 };
+// the buttons as laid out right now: scaled from the bottom corner, mirrored for left-handed play
+function tbtn() {
+  const k = { S: 0.85, M: 1, L: 1.2 }[settings.btn] ?? 1, lay = {};
+  for (const [n, b] of Object.entries(TBTN)) {
+    let x = W - (W - b.x) * k; const y = H - (H - b.y) * k;
+    if (settings.lefty) x = W - x;
+    lay[n] = { ...b, x: Math.round(x), y: Math.round(y), r: Math.round(b.r * k) };
+  }
+  return lay;
+}
 // the action for a press right now: shoot (or dunk) with the ball; block or catch when the ball is in the air near you;
 // otherwise reach for a steal
 // with the ball in driving range of the rim, the big button dashes in and the dunk follows on its own
@@ -177,7 +187,7 @@ addEventListener("touchstart", (e) => {
     if (gx > 226 && gx < 246 && gy < 18) { pressed.add("Escape"); continue; }                     // the pause icon
     const face = infoBoxes.find((b) => gx >= b.x && gx < b.x + b.w && gy >= b.y && gy < b.y + b.h);
     if (face) { pinned[face.i] = !pinned[face.i]; sfx.click(); continue; }
-    if (gx < W * 0.45) {
+    if (settings.lefty ? gx > W * 0.55 : gx < W * 0.45) {
       if (!touch.stick) {
         const now = performance.now();
         touch.stick = { id: t.identifier, ox: gx, oy: gy, sx: gx, sy: gy, x: gx, y: gy, t0: now, dir: 0, jumped: false };
@@ -185,8 +195,9 @@ addEventListener("touchstart", (e) => {
       continue;
     }
     let best = "act", bd = Infinity;
-    for (const [n, b] of Object.entries(TBTN)) { const d = Math.hypot(gx - b.x, gy - b.y) / b.r; if (d < bd) { bd = d; best = n; } }
-    let key = best === "act" ? smartKey() : TBTN[best].key;
+    const lay = tbtn();
+    for (const [n, b] of Object.entries(lay)) { const d = Math.hypot(gx - b.x, gy - b.y) / b.r; if (d < bd) { bd = d; best = n; } }
+    let key = best === "act" ? smartKey() : lay[best].key;
     if (key === "DRIVE") {
       // face the rim and dash; the dunk is pressed for you the moment it becomes possible
       const me = players[0], toward = Math.sign(hoopOf(me).cx - me.x) || 1;
@@ -223,7 +234,7 @@ addEventListener("touchend", touchEnd);
 addEventListener("touchcancel", touchEnd);
 // leaving a game (pause, the end) lets go of everything held
 function touchReset() { touch.stick = null; touch.btn.clear(); for (const k of ["KeyA", "KeyD", "KeyF", "KeyW", "KeyS", "KeyE"]) keys.delete(k); }
-function buzz(ms) { if (isTouch && !demo && navigator.vibrate) try { navigator.vibrate(ms); } catch {} }
+function buzz(ms) { if (isTouch && !demo && settings.vibe && navigator.vibrate) try { navigator.vibrate(ms); } catch {} }
 // each frame of a touch game: finish a drive with the dunk, and light the controls when BLAZE awakens
 function touchFrame(dt) {
   if (!isTouch || demo || !players.length) return;
@@ -253,6 +264,7 @@ canvas.addEventListener("pointerdown", (e) => {
   audio();
   if (e.pointerType === "touch" && touchPlay()) return;
   [mouse.x, mouse.y] = toGame(e);
+  if (screen === "settings") { settingsTap(); return; }
   const face = infoBoxes.find(inside);
   if (face) { pinned[face.i] = !pinned[face.i]; sfx.click(); return; }
   const card = cards.find(inside);
@@ -276,13 +288,13 @@ const humanControl = (b) => ({
 // ---------- sound ----------
 // Everything is synthesized: a master bus with a compressor, beeps, filtered noise, a formant "voice" per character,
 // and a crowd (a murmur that follows the hype, roars, ooohs and claps).
-let ac = null, muted = false, out = null, white = null, amb = null;
+let ac = null, muted = false, out = null, mixIn = null, white = null, amb = null;
 function audio() {
   if (!ac) try {
     ac = new AudioContext();
     const comp = ac.createDynamicsCompressor(), master = ac.createGain();
     comp.threshold.value = -20; comp.ratio.value = 5; comp.attack.value = 0.003; comp.release.value = 0.2;
-    master.gain.value = 0.9; comp.connect(master).connect(ac.destination); out = comp;
+    master.gain.value = 0.9; comp.connect(master).connect(ac.destination); mixIn = comp; out = ac.createGain(); out.connect(comp);   // out: the sound effects bus
     const n = ac.sampleRate * 2; white = ac.createBuffer(1, n, ac.sampleRate);
     const d = white.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
     startAmbience();
@@ -391,7 +403,7 @@ const music = { on: true, bus: null, next: 0, step: 0, bpm: 92, mode: "menu", du
 function musicInit() {
   music.bus = ac.createGain(); music.bus.gain.value = 0;
   const lp = ac.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 9000; music.lp = lp;
-  music.bus.connect(lp).connect(out);
+  music.bus.connect(lp).connect(mixIn);
   music.next = ac.currentTime + 0.15;
   setInterval(musicTick, 25);
 }
@@ -448,7 +460,8 @@ function updateMusic() {
   music.mode = mode;
   music.bpm = { menu: 88, paused: 88, game: 94 + hype * 6, final: 112, ot: 104, silent: 94 }[mode];
   music.duck = Math.max(0, music.duck - 1 / 60 / 0.9);
-  const vol = mode === "silent" ? 0 : (mode === "paused" ? 0.12 : 0.3) * (1 - music.duck * 0.7);
+  const vol = mode === "silent" ? 0 : (mode === "paused" ? 0.12 : 0.3) * (1 - music.duck * 0.7) * (settings.music / 7);
+  out.gain.setTargetAtTime(settings.sfx / 8, ac.currentTime, 0.05);
   music.bus.gain.setTargetAtTime(vol, ac.currentTime, 0.08);
   music.lp.frequency.setTargetAtTime(mode === "paused" ? 700 : 9000, ac.currentTime, 0.1);
 }
@@ -583,9 +596,11 @@ function makePlayer(i, ci) {
   };
 }
 
-function newGame(kind) {
+function newGame(kind, force = null) {
+  tut = kind === "tutorial" ? { step: 0, wait: 0, done: 0, moved: 0, idle: 0, shotIn: 1.2 } : null;
+  if (tut) kind = "cpu";
   demo = kind === "demo"; cpu = kind !== "pvp";
-  const picks = demo ? [Math.floor(Math.random() * CHARS.length), Math.floor(Math.random() * CHARS.length)] : chosen;
+  const picks = force ?? (demo ? [Math.floor(Math.random() * CHARS.length), Math.floor(Math.random() * CHARS.length)] : chosen);
   players = [];
   players.push(makePlayer(0, picks[0])); players.push(makePlayer(1, picks[1]));
   clock = GAME_TIME; overtime = false; chaosIdx = 0; lastScorer = null; bananas = []; teeth = []; timers = []; strikes = [];
@@ -596,6 +611,7 @@ function newGame(kind) {
   setPossession(Math.random() < 0.5 ? 0 : 1);
   stateT = 0;
   if (demo) { phase = "play"; return; }
+  if (tut) { tutSetup(); return; }
   phase = "countdown";
   spawnH(countdown, { x: W / 2, y: 80 });
 }
@@ -818,7 +834,7 @@ function cpuControl(me, opp, dt) {
   const apex = (SHOT_JUMP * me.ch.jmp) / (GRAV * gravMul);
   if (me.shooting && ball.owner === me) { c.shootHeld = me.shootT < ai.releaseAt; return c; }
   if (ai.jumpIn > 0 && (ai.jumpIn -= dt) <= 0) c.jump = true;
-  if (me.sp >= 1 && ai.spT <= 0 && wantsSpecial(me, opp)) { c.special = true; ai.spT = rnd(1, 3); return c; }
+  if (me.sp >= 1 && ai.spT <= 0 && wantsSpecial(me, opp)) { c.special = true; ai.spT = rnd(...lvl(me).special); return c; }
 
   if (ball.owner === me) {
     const h = hoopOf(me), front = courtSide(me), dist = Math.abs(me.x - h.cx), toward = Math.sign(h.cx - me.x) || 1;
@@ -827,7 +843,7 @@ function cpuControl(me, opp, dt) {
       ai.plan = r < t3 ? { kind: "three", at: rnd(100, 122) } : r < 0.62 ? { kind: "drive" } : { kind: "mid", at: rnd(36, 78) };
     }
     const ahead = (opp.x - me.x) * toward > 0 && Math.abs(opp.x - me.x) < 26 && opp.fallen <= 0;
-    const shoot = () => { c.shoot = c.shootHeld = true; ai.releaseAt = apex + gauss() * 0.09; ai.plan = null; };
+    const shoot = () => { c.shoot = c.shootHeld = true; ai.releaseAt = apex + gauss() * lvl(me).aim; ai.plan = null; };
     if (ai.plan.kind === "drive") {
       go(h.cx);
       if (canDunk(me) && Math.random() < 0.6) { c.shoot = true; ai.plan = null; }
@@ -842,14 +858,14 @@ function cpuControl(me, opp, dt) {
     }
   } else if (ball.owner === opp) {
     const h = hoopOf(opp), dir = Math.sign(h.cx - opp.x) || 1;
-    if (ai.t <= 0) { ai.t = rnd(0.08, 0.22); ai.tx = opp.x + dir * rnd(16, 23); }
+    if (ai.t <= 0) { ai.t = rnd(...lvl(me).react); ai.tx = opp.x + dir * rnd(16, 23); }
     go(ai.tx, 2);
     if ((opp.shooting || opp.dunk) && !ai.decided) {
       ai.decided = true;
       const near = Math.abs(opp.x - me.x) < (opp.dunk ? 46 : 32);
-      if (near && me.onGround && Math.random() < 0.5) ai.jumpIn = opp.dunk ? rnd(0.08, 0.22) : rnd(0.02, 0.14);
+      if (near && me.onGround && Math.random() < lvl(me).block) ai.jumpIn = opp.dunk ? rnd(0.08, 0.22) : rnd(0.02, 0.14);
     }
-    if (Math.abs(opp.x - me.x) < 22 && me.cd <= 0 && Math.random() < dt * 0.8) c.shoot = true;
+    if (Math.abs(opp.x - me.x) < 22 && me.cd <= 0 && Math.random() < dt * lvl(me).steal) c.shoot = true;
     if (Math.abs(ai.tx - me.x) > 45 && me.dashCd <= 0 && Math.random() < dt * 3) c.dash = true;
   } else {
     go(ball.x, 2);
@@ -905,6 +921,7 @@ function release(p, forced = null) {
     x: bx, y: by, prevY: by, fromX: p.x, vx: (tx - bx) / T, vy: (ty - by - 0.5 * g * T * T) / T, trail: [], homing: null,
   });
   sfx.shoot();
+  if (p.i === 0 && (q === "perfect" || q === "good")) tutHit("shoot");
   if (forced) return;
   if (q === "perfect") {
     say(p, "PERFECT", C.green); sfx.perfect(); impact({ stop: 0.05, zoom: 1.04, at: [p.x, p.y - 28 * K] });
@@ -945,7 +962,7 @@ function updateDunk(p, dt) {
       if (d.contested) quip(POSTER);
     }
     if (!demo) spawnW(impactFrame, { x: W / 2, y: H / 2 });
-    sfx.dunk();
+    sfx.dunk(); if (p.i === 0) tutHit("dunk");
     score(h, { dunk: true, word: shatter ? "GLASS!!" : d.contested ? "POSTER!" : "SLAM!" });
   } else {
     Object.assign(ball, { owner: null, live: false, blocked: true, shooter: null, x: p.x + p.facing * 4 * K, y: p.y - 30 * K, vx: def.facing * 110, vy: -50 });
@@ -1004,7 +1021,7 @@ function trySteal(p, opp) {
   opp.stun = 0.45; opp.flash = 0.08; gainSp(p, 0.15);
   hitFx("steal", hx, hy, p.col, Math.sign(dx) || 1);
   impact({ stop: 0.08, zoom: 1.06, at: [hx, hy], shake: 3, dx: -Math.sign(dx) });
-  sfx.steal(); hype = Math.max(hype, 0.5); say$(p, "steal");
+  sfx.steal(); hype = Math.max(hype, 0.5); say$(p, "steal"); if (p.i === 0) tutHit("steal");
   pop(p, "STEAL!", p.col);
   if (sticky) passiveFx(p, [hx, hy]);
 }
@@ -1025,6 +1042,7 @@ function trySpecial(p) {
   if (p.sp < 1 || busy(p) || p.shooting || p.granny > 0 || cutin || phase !== "play") return;
   if (p.ch.name === "SHADE" && ball.owner === p) { say(p, "GOT IT ALREADY", C.dim); return; }
   p.sp = 0;
+  if (p.i === 0) tutHit("special");
   if (demo) { SPECIALS[p.ch.name](p); return; }
   cutin = { p, t: 0, dur: 0.85, fn: () => SPECIALS[p.ch.name](p) }; duckMusic(1);
   sfx.cutin(); say$(p, "big");
@@ -1161,7 +1179,7 @@ function updatePlayer(p, c, dt) {
     if ((p.ghostT -= dt) <= 0) { p.ghostT = 0.03; p.ghosts.push({ x: p.x, y: p.y, f: p.facing, a: 0.6 }); }
     dashContact(p);
   } else if (!p.shooting && !p.dunk && p.fallen <= 0 && p.frozen <= 0) {
-    const sp = SPEED * p.ch.spd * (cpu && p.i === 1 && !demo ? 0.93 : 1) * (has ? 0.92 : 1) * (p.whiff > 0 ? 0.35 : 1) * (p.fire ? 1.12 : 1);
+    const sp = SPEED * p.ch.spd * (cpu && p.i === 1 && !demo ? lvl(p).speed : 1) * (has ? 0.92 : 1) * (p.whiff > 0 ? 0.35 : 1) * (p.fire ? 1.12 : 1);
     if (p.onGround) p.vx = dir * sp; else p.vx += (dir * sp - p.vx) * Math.min(1, dt * 3);
     if (dir) p.facing = dir;
   }
@@ -1267,7 +1285,7 @@ function updateBall(dt) {
     if (!d.onGround && d.frozen <= 0 && Math.abs(ball.x - d.x) < (d.fire ? 12 : 9) && ball.y > d.y - (d.fire ? 63 : 56) && ball.y < d.y - 34) return snatch(d);   // right in his hands
     if (!d.onGround && d.frozen <= 0 && Math.abs(ball.x - d.x) < (assist(d) ? 16 : 12) && ball.y > d.y - 60 && ball.y < d.y - 12) {
       ball.live = false; ball.blocked = true; ball.vx = -ball.vx * 0.5 + d.facing * 30; ball.vy = 50;
-      hitFx("block", ball.x, ball.y, d.col, d.facing); pop(d, "BLOCK!", C.gold);
+      hitFx("block", ball.x, ball.y, d.col, d.facing); pop(d, "BLOCK!", C.gold); if (d.i === 0) tutHit("block");
       impact({ stop: 0.12, zoom: 1.1, at: [ball.x, ball.y], shake: 5, dx: d.facing });
       sfx.block(); sfx.ooh(); hype = 1; gainSp(d, 0.15);
       if (Math.random() < 0.2) { s.fallen = 0.7; s.fallDir = -s.facing; s.flash = 0.1; burst(s.x, s.y - 26 * K, 8, C.gold); sfx.boing(); quip("BALL TO THE FACE"); }
@@ -1294,7 +1312,7 @@ function snatch(p) {
   const s = ball.shooter;
   Object.assign(ball, { owner: p, live: false, shooter: null, blocked: true, trail: [], homing: null });
   p.ai.plan = null; p.shooting = false;
-  hitFx("snatch", ball.x, ball.y, p.col, p.facing); pop(p, "SNATCHED!", C.gold);
+  hitFx("snatch", ball.x, ball.y, p.col, p.facing); pop(p, "SNATCHED!", C.gold); if (p.i === 0) tutHit("block");
   impact({ stop: 0.1, zoom: 1.08, at: [ball.x, ball.y], shake: 3, dx: p.facing });
   sfx.steal(); sfx.ooh(); hype = 1; gainSp(p, 0.15); say$(p, "steal");
   if (s) say(s, "HEY!", C.red);
@@ -1429,6 +1447,7 @@ function updateChaos(dt) {
 // ---------- simulation ----------
 function step(dt) {
   touchFrame(dt);
+  if (tut && screen === "game") tutUpdate(dt);
   stateT += dt; worldT += dt;
   for (const f of fxWorld) f.update(dt);
   for (const f of fxHud) f.update(dt);
@@ -1461,7 +1480,7 @@ function step(dt) {
   }
   if (phase === "countdown") { if (stateT > 1.86) { phase = "play"; sfx.fanfare(); sfx.whistle(); } else return; }
 
-  const ctrls = players.map((p, i) => (demo || (i === 1 && cpu) ? cpuControl(p, other(p), dt) : humanControl(cpu ? SOLO : BINDS[i])));
+  const ctrls = players.map((p, i) => (i === 1 && tut ? tutControl(p) : demo || (i === 1 && cpu) ? cpuControl(p, other(p), dt) : humanControl(cpu ? SOLO : BINDS[i])));
   if (phase === "scored") ctrls.forEach((c, i) => { ctrls[i] = NONE; });
   players.forEach((p, i) => updatePlayer(p, ctrls[i], dt));
   // bodies don't pass through each other on the floor, except on a dash
@@ -1476,10 +1495,11 @@ function step(dt) {
   updateTeeth(dt);
   updateChaos(dt);
   if (phase === "scored") {
-    if (stateT > 1.6) { setPossession(1 - lastScorer.i); phase = "play"; }
+    if (stateT > 1.6) { if (tut) tutSetup(); else setPossession(1 - lastScorer.i); phase = "play"; }
     return;
   }
   if (phase !== "play") return;
+  if (tut) return;                                                         // practice: no clock, no chaos, no end
   const secBefore = Math.ceil(clock);
   clock -= dt;
   if (!demo && !overtime && Math.ceil(clock) !== secBefore && secBefore <= 5 && secBefore >= 1) sfx.clockTick(secBefore === 1);
@@ -1523,9 +1543,10 @@ function updateFreeze(real) {
 
 // ---------- menus and character select ----------
 function menuItems() {
-  if (screen === "menu") return [["VS CPU", () => startSelect("cpu")], ["2 PLAYERS", () => startSelect("pvp")], ["HOW TO PLAY", () => setScreen("howto")], ["LANGUAGE", () => setLang(lang === "ko" ? "en" : "ko")]];
+  if (screen === "menu") return [["VS CPU", () => startSelect("cpu")], ["2 PLAYERS", () => startSelect("pvp")], ["TUTORIAL", startTutorial], ["HOW TO PLAY", () => setScreen("howto")], ["SETTINGS", openSettings]];
   if (screen === "howto") return [["BACK", () => setScreen("menu")]];
-  if (screen === "paused") return [["RESUME", () => setScreen("game")], ["CHANGE BALLERS", () => { toMenu(); startSelect(sel?.mode ?? "cpu"); }], ["LANGUAGE", () => setLang(lang === "ko" ? "en" : "ko")], ["QUIT TO MENU", toMenu]];
+  if (screen === "paused" && tut) return [["RESUME", () => setScreen("game")], ["SKIP STEP", () => { setScreen("game"); tut.wait = 0.01; }], ["SETTINGS", openSettings], ["QUIT TO MENU", toMenu]];
+  if (screen === "paused") return [["RESUME", () => setScreen("game")], ["SETTINGS", openSettings], ["CHANGE BALLERS", () => { toMenu(); startSelect(sel?.mode ?? "cpu"); }], ["QUIT TO MENU", toMenu]];
   if (screen === "over") return [["REMATCH", () => startGame(cpu ? "cpu" : "pvp")], ["CHANGE BALLERS", () => { const m = cpu ? "cpu" : "pvp"; toMenu(); startSelect(m); }], ["MENU", toMenu]];
   return [];
 }
@@ -1578,6 +1599,7 @@ function menuInput(real) {
   if (pressed.has("KeyT")) setLang(lang === "ko" ? "en" : "ko");
   if (pressed.has("KeyH")) { const v = !(pinned[0] && pinned[1]); pinned = [v, v]; }
   if (screen === "select") { selectInput(real); mouse.moved = false; return; }
+  if (screen === "settings") { settingsInput(); return; }
   mouse.moved = false;
   if (pressed.has("Escape") || pressed.has("KeyP")) {
     if (screen === "game" && phase !== "done" && !cutin && !chaosIntro) setScreen("paused");
@@ -1596,6 +1618,155 @@ function menuInput(real) {
   if (["KeyS", "ArrowDown"].some((k) => pressed.has(k))) { menuSel = (menuSel + 1) % n; sfx.click(); }
   if (screen === "over" && stateT < 1.2) return;
   if (["Enter", "Space", "KeyF"].some((k) => pressed.has(k))) { sfx.click(); buttons[menuSel]?.act(); }
+}
+
+
+// ---------- settings ----------
+// Kept on the device. Music and sound volume, vibration, how hard the CPU plays, the size of the touch buttons,
+// a left-handed layout (stick on the right), and the language.
+const settings = Object.assign({ music: 7, sfx: 8, vibe: true, diff: "normal", btn: "M", lefty: false, tutDone: false },
+  (() => { try { return JSON.parse(localStorage.getItem("hoops.settings") || "{}"); } catch { return {}; } })());
+const saveSettings = () => { try { localStorage.setItem("hoops.settings", JSON.stringify(settings)); } catch {} };
+const DIFFS = ["easy", "normal", "hard"], BTNS = ["S", "M", "L"];
+// how the CPU opponent plays at each level
+const DIFF = {
+  easy: { speed: 0.82, aim: 0.17, react: [0.22, 0.42], steal: 0.35, block: 0.25, special: [3, 6] },
+  normal: { speed: 0.93, aim: 0.09, react: [0.08, 0.22], steal: 0.8, block: 0.5, special: [1, 3] },
+  hard: { speed: 1.02, aim: 0.05, react: [0.04, 0.12], steal: 1.4, block: 0.78, special: [0.6, 1.6] },
+};
+// the level for this CPU: the player's choice against a human, normal when CPUs play each other
+const lvl = (p) => DIFF[!demo && cpu && p.i === 1 && !tut ? settings.diff : "normal"];
+
+let settingsBack = "menu", setSel = 0, setRows = [];
+function openSettings() { settingsBack = screen; setSel = 0; setScreen("settings"); }
+const SETTING_ROWS = [
+  { key: "lang", label: "LANGUAGE", show: () => (lang === "ko" ? "한국어" : "ENGLISH"), step: () => setLang(lang === "ko" ? "en" : "ko") },
+  { key: "music", label: "MUSIC", show: () => volBar(settings.music), step: (d) => { settings.music = clamp(settings.music + d, 0, 10); } },
+  { key: "sfx", label: "SOUND", show: () => volBar(settings.sfx), step: (d) => { settings.sfx = clamp(settings.sfx + d, 0, 10); sfx.click(); } },
+  { key: "vibe", label: "VIBRATION", show: () => (settings.vibe ? "ON" : "OFF"), step: () => { settings.vibe = !settings.vibe; buzz(30); } },
+  { key: "diff", label: "CPU LEVEL", show: () => settings.diff.toUpperCase(), step: (d) => { settings.diff = DIFFS[(DIFFS.indexOf(settings.diff) + d + 3) % 3]; } },
+  { key: "btn", label: "BUTTON SIZE", show: () => ({ S: "SMALL", M: "MEDIUM", L: "LARGE" })[settings.btn], step: (d) => { settings.btn = BTNS[(BTNS.indexOf(settings.btn) + d + 3) % 3]; } },
+  { key: "lefty", label: "LEFT-HANDED", show: () => (settings.lefty ? "ON" : "OFF"), step: () => { settings.lefty = !settings.lefty; } },
+];
+const volBar = (v) => "#".repeat(v) + "-".repeat(10 - v);
+function changeSetting(i, d) { SETTING_ROWS[i].step(d); saveSettings(); sfx.click(); }
+function settingsInput() {
+  const n = SETTING_ROWS.length + 1;                                      // the last row is BACK
+  if (["KeyW", "ArrowUp"].some((k) => pressed.has(k))) { setSel = (setSel + n - 1) % n; sfx.click(); }
+  if (["KeyS", "ArrowDown"].some((k) => pressed.has(k))) { setSel = (setSel + 1) % n; sfx.click(); }
+  const d = ["KeyA", "ArrowLeft"].some((k) => pressed.has(k)) ? -1 : ["KeyD", "ArrowRight"].some((k) => pressed.has(k)) ? 1 : 0;
+  if (d && setSel < SETTING_ROWS.length) changeSetting(setSel, d);
+  if (["Enter", "Space", "KeyF"].some((k) => pressed.has(k))) { if (setSel === SETTING_ROWS.length) closeSettings(); else changeSetting(setSel, 1); }
+  if (pressed.has("Escape")) closeSettings();
+}
+function closeSettings() { sfx.click(); setScreen(settingsBack === "paused" ? "paused" : "menu"); }
+// a tap on a row: the arrows step down or up, anywhere else on the row steps up; the back button closes
+function settingsTap() {
+  const hit = setRows.find(inside);
+  if (!hit) return false;
+  if (hit.back) { closeSettings(); return true; }
+  setSel = hit.i;
+  changeSetting(hit.i, mouse.x < hit.x + hit.w * 0.62 && mouse.x > hit.x + hit.w * 0.4 ? -1 : 1);
+  return true;
+}
+function drawSettings(p) {
+  veil(p, 0, 0, W, H, INK, 0.6);
+  panel(p, 46, 14, 228, 152);
+  p.text("SETTINGS", 160, 20, C.gold, { font: "big", align: "center", outline: INK });
+  setRows = [];
+  SETTING_ROWS.forEach((r, i) => {
+    const y = 36 + i * 16, on = setSel === i, box = { x: 54, y: y - 2, w: 212, h: 14, i };
+    setRows.push(box);
+    if (mouse.moved && inside(box)) setSel = i;
+    if (on) p.rect(box.x, box.y, box.w, box.h, lerpC(C.pink, INK, 0.55));
+    p.text(r.label, 60, y + 2, on ? WHITE : C.line);
+    p.text("<", 186, y + 2, on ? WHITE : C.dim, { align: "center" });
+    p.text(">", 258, y + 2, on ? WHITE : C.dim, { align: "center" });
+    p.text(r.show(), 222, y + 2, on ? C.gold : WHITE, { align: "center" });
+  });
+  const by = 36 + SETTING_ROWS.length * 16 + 4, back = { x: 130, y: by, w: 60, h: 13, back: true };
+  setRows.push(back);
+  if (mouse.moved && inside(back)) setSel = SETTING_ROWS.length;
+  const sel = setSel === SETTING_ROWS.length;
+  p.rect(back.x, back.y, back.w, back.h, sel ? C.pink : C.panel); frameBox(p, back.x, back.y, back.w, back.h, sel ? hex("#ff86e6") : C.panelEdge);
+  p.text("BACK", 160, by + 4, sel ? WHITE : C.line, { align: "center" });
+}
+
+// ---------- tutorial ----------
+// Six short drills against a slow, scripted GRAMPS: move, shoot on time, dunk, steal, block, special. Each one
+// waits until you have done it, cheers, and sets up the next. Nothing counts: no clock, no chaos.
+const TUT = [
+  { key: "move", title: "MOVE", keys: "A D (OR ARROWS) TO MOVE", touch: "LEFT THUMB: SLIDE TO MOVE" },
+  { key: "shoot", title: "SHOOT", keys: "HOLD F, LET GO AT THE TOP OF THE JUMP", touch: "HOLD THE BIG BUTTON, LET GO AT THE TOP" },
+  { key: "dunk", title: "DUNK", keys: "DASH (S) AT THE RIM, THEN F", touch: "NEAR THE RIM THE BIG BUTTON SAYS DUNK: PRESS IT" },
+  { key: "steal", title: "STEAL", keys: "GET CLOSE AND PRESS F", touch: "GET CLOSE AND PRESS STEAL" },
+  { key: "block", title: "BLOCK", keys: "JUMP (W) WHEN HE SHOOTS", touch: "PRESS BLOCK WHEN HE SHOOTS" },
+  { key: "special", title: "SPECIAL", keys: "YOUR SP IS FULL: PRESS E", touch: "YOUR SP IS FULL: PRESS SP" },
+];
+let tut = null;
+function startTutorial() {
+  const mine = chosen[0], coach = mine === 5 ? 3 : 5;
+  chosen = [mine, chosen[1]];
+  newGame("tutorial", [mine, coach]);
+  setScreen("game");
+}
+function tutSetup() {
+  const [me, op] = players, k = TUT[tut.step]?.key;
+  tut.moved = 0; tut.idle = 0; tut.shotIn = 1.2;
+  if (k === "steal" || k === "block") {
+    setPossession(1); op.x = k === "steal" ? 250 : 215; me.x = k === "steal" ? 170 : 199; op.facing = -1; me.facing = 1;
+  } else {
+    setPossession(0); me.x = k === "dunk" ? 232 : k === "shoot" ? 210 : 140; op.x = 40; me.facing = 1; op.facing = 1;
+  }
+  if (k === "special") me.sp = 1;
+  phase = "play"; stateT = 0;
+}
+// a drill was done: cheer, then the next one (or the end)
+function tutHit(kind) {
+  if (!tut || tut.wait > 0 || TUT[tut.step]?.key !== kind) return;
+  tut.wait = 1.3; sfx.fanfare(); crowd$.cheer(1); buzz(20);
+  shout("NICE!");
+}
+function tutUpdate(dt) {
+  const [me, op] = players;
+  clock = GAME_TIME;                                                        // no clock in practice
+  if (tut.wait > 0 && (tut.wait -= dt) <= 0) {
+    tut.step++;
+    if (tut.step >= TUT.length) { tut.done = 3; settings.tutDone = true; saveSettings(); sfx.three(); crowd$.cheer(3); return; }
+    tutSetup();
+  }
+  if (tut.done > 0 && (tut.done -= dt) <= 0) { tut = null; toMenu(); startSelect("cpu"); return; }
+  const k = TUT[tut.step]?.key;
+  if (k === "move") { tut.moved += Math.abs(me.vx) * dt; if (tut.moved > 90) tutHit("move"); }
+  // the drills against his ball start over when it is gone for a moment
+  if ((k === "steal" || k === "block") && ball.owner !== op && !ball.live && phase === "play") { if ((tut.idle += dt) > 1.4) tutSetup(); } else tut.idle = 0;
+  if ((k === "shoot" || k === "dunk" || k === "special") && ball.owner !== me && !ball.live && phase === "play") { if ((tut.idle += dt) > 1.6) tutSetup(); }
+}
+// GRAMPS, scripted: stands aside for your drills, dribbles slowly at you for the steal, shoots for the block
+function tutControl(me) {
+  const c = { ...NONE }, k = TUT[tut?.step]?.key;
+  if (!tut || tut.wait > 0 || tut.done > 0) return c;
+  if (k === "steal" && ball.owner === me) { if (Math.floor(worldT * 3) % 3) c.left = true; if (me.x < 70) tutSetup(); }
+  if (k === "block" && ball.owner === me) {
+    if (!me.shooting && (tut.shotIn -= 1 / 60) <= 0) { c.shoot = c.shootHeld = true; me.ai.releaseAt = 0.34; tut.shotIn = 2.2; }
+    else if (me.shooting) c.shootHeld = me.shootT < me.ai.releaseAt;
+  }
+  return c;
+}
+function drawTutorial(p) {
+  if (!tut) return;
+  if (tut.done > 0) {
+    veil(p, 0, 70, W, 40, INK, 0.75);
+    p.text("YOU'RE READY!", 160, 76, C.gold, { font: "big", scale: 2, align: "center", outline: INK });
+    p.text("NOW GO WIN A REAL GAME", 160, 96, WHITE, { align: "center", outline: INK });
+    return;
+  }
+  const s = TUT[tut.step], x = 50, w = 220, y = 32;
+  veil(p, x, y, w, 30, INK, 0.82); frameBox(p, x, y, w, 30, tut.wait > 0 ? C.green : C.gold);
+  p.text(`${tut.step + 1}/${TUT.length}`, x + 5, y + 4, C.dim);
+  p.text(s.title, 160, y + 3, tut.wait > 0 ? C.green : C.gold, { font: "big", align: "center" });
+  p.text(isTouch ? s.touch : s.keys, 160, y + 17, WHITE, { align: "center" });
+  for (let i = 0; i < TUT.length; i++) p.rect(x + w - 8 - (TUT.length - 1 - i) * 6, y + 5, 4, 4, i < tut.step || (i === tut.step && tut.wait > 0) ? C.green : i === tut.step ? C.gold : hex("#3a3550"));
 }
 
 // ---------- language ----------
@@ -1642,7 +1813,15 @@ const KO = {
   "QUIT TO MENU": "메인으로", "REMATCH": "한 판 더", "MENU": "메인으로", "PAUSED": "일시정지", "DRAW": "무승부", "PASSIVE": "패시브", 
   "1 ON 1 STREETBALL MAYHEM": "1대1 길거리 농구 난장판", "6 BALLERS  6 SPECIALS  5 KINDS OF CHAOS": "선수 6명 · 필살기 6개 · 카오스 5종",
   "M SOUND OFF": "M 소리 꺼짐", "M SOUND ON": "M 소리 켜짐", "CHOOSE YOUR BALLER": "선수 선택", "WAITING FOR P1": "P1 고르는 중...",
-  "GET READY!": "준비!", "SHOOT": "슛", "STEAL": "스틸", "JUMP": "점프", "BLOCK": "블락", "LEFT THUMB: MOVE   RIGHT THUMB: BIG BUTTON DOES IT ALL, DASH NEXT TO IT": "왼손: 이동   오른손: 큰 버튼 하나로 다 됨, 옆 버튼은 대시", "DASH": "대시", "DUNK": "덩크", "SO CLOSE": "아깝다!", "TWO IN A ROW": "2연속 득점", "HE IS ON A ROLL": "손끝이 뜨겁다", "SOMEBODY STOP HIM": "누가 좀 막아봐", "CATCH": "잡기", "GRAB": "줍기", "SPECIAL MOVE": "필살기",
+  "GET READY!": "준비!", "SHOOT": "슛", "STEAL": "스틸", "JUMP": "점프", "BLOCK": "블락", "LEFT THUMB: MOVE   RIGHT THUMB: BIG BUTTON DOES IT ALL, DASH NEXT TO IT": "왼손: 이동   오른손: 큰 버튼 하나로 다 됨, 옆 버튼은 대시", "DASH": "대시", "DUNK": "덩크", "SETTINGS": "설정", "TUTORIAL": "튜토리얼", "LANGUAGE": "언어", "MUSIC": "음악", "SOUND": "효과음", "VIBRATION": "진동",
+  "CPU LEVEL": "CPU 난이도", "BUTTON SIZE": "버튼 크기", "LEFT-HANDED": "왼손잡이 모드", "ON": "켜짐", "OFF": "꺼짐", "EASY": "쉬움", "NORMAL": "보통", "HARD": "어려움",
+  "SMALL": "작게", "MEDIUM": "보통", "LARGE": "크게", "PRACTICE": "연습", "SKIP STEP": "이 단계 건너뛰기", "NICE!": "좋아요!", "YOU'RE READY!": "준비 완료!", "NOW GO WIN A REAL GAME": "이제 실전에서 이겨보세요",
+  "SPECIAL": "필살기", "A D (OR ARROWS) TO MOVE": "A D (또는 방향키)로 이동", "LEFT THUMB: SLIDE TO MOVE": "왼손 엄지로 밀어서 이동",
+  "HOLD F, LET GO AT THE TOP OF THE JUMP": "F를 누르고 점프 꼭대기에서 떼기", "HOLD THE BIG BUTTON, LET GO AT THE TOP": "큰 버튼을 누르고 점프 꼭대기에서 떼기",
+  "DASH (S) AT THE RIM, THEN F": "림 쪽으로 대시(S) 후 F", "NEAR THE RIM THE BIG BUTTON SAYS DUNK: PRESS IT": "림 근처에서 큰 버튼이 덩크로 바뀌면 누르기",
+  "GET CLOSE AND PRESS F": "가까이 붙어서 F로 스틸", "GET CLOSE AND PRESS STEAL": "가까이 붙어서 스틸 누르기",
+  "JUMP (W) WHEN HE SHOOTS": "상대가 슛할 때 점프(W)", "PRESS BLOCK WHEN HE SHOOTS": "상대가 슛할 때 블락 누르기",
+  "YOUR SP IS FULL: PRESS E": "SP가 찼어요: E 누르기", "YOUR SP IS FULL: PRESS SP": "SP가 찼어요: SP 버튼 누르기", "SO CLOSE": "아깝다!", "TWO IN A ROW": "2연속 득점", "HE IS ON A ROLL": "손끝이 뜨겁다", "SOMEBODY STOP HIM": "누가 좀 막아봐", "CATCH": "잡기", "GRAB": "줍기", "SPECIAL MOVE": "필살기",
   "< > OR A D TO PICK   F / ENTER TO LOCK   ESC BACK": "< > / A D 고르기   F / ENTER 확정   ESC 뒤로",
   "P1: A D + F     P2: < > + ENTER     ESC BACK": "P1  A D + F    P2  < > + ENTER    ESC 뒤로",
   "MOVE": "이동", "JUMP / BLOCK": "점프 / 블락", "DASH": "대시", "SHOOT / STEAL": "슛 / 스틸",
@@ -2344,6 +2523,7 @@ function drawSelect(p) {
     const c = who ? CHARS[1].col : CHARS[0].col;
     panel(p, px, py, pw, ph, sel.lock[who] ? WHITE : c);
     p.text(who ? (sel.mode === "cpu" ? "CPU" : "P2") : "P1", px + 4, py + 3, c);
+    if (who && sel.mode === "cpu") p.text(settings.diff.toUpperCase(), px + pw - 4, py + 3, C.dim, { align: "right" });
     if (hidden) { p.text("WAITING FOR P1", px + pw / 2, py + 44, C.dim, { align: "center" }); return; }
     p.rect(px + 4, py + 10, 34, KOL ? 44 : 50, lerpC(C.panel, ch.dark, 0.6));
     drawPlayer(p, dummy(ch, who ? -1 : 1), { x: px + 21, y: py + (KOL ? 51 : 55), pose: sel.lock[who] ? "dance" : "idle" });
@@ -2430,7 +2610,7 @@ function drawTouch(p) {
   if (!isTouch || screen !== "game") return;
   const me = players[0], held = new Set([...touch.btn.values()].map((b) => b.name)), s = touch.stick;
   const dim = lerpC(WHITE, INK, 0.45), faint = lerpC(WHITE, INK, 0.7);
-  const bx = Math.round(s ? s.ox : 42), by = Math.round(s ? s.oy : 150);
+  const lay = tbtn(), bx = Math.round(s ? s.ox : settings.lefty ? W - 42 : 42), by = Math.round(s ? s.oy : 150);
   const hot = me.fire, flick = Math.floor(worldT * 12) % 2, fireRim = flick ? C.fire[1] : C.fire[2];
   // flames licking up from a control's rim while awakened
   const burn = (x, y, r, n) => {
@@ -2441,7 +2621,7 @@ function drawTouch(p) {
     }
     p.glow(x, y, r + 8, hex("#ff6a1a"), 0.35 + touch.burn * 0.5);
   };
-  if (touch.burn > 0) for (const b of [{ x: bx, y: by, r: 15 }, ...Object.values(TBTN)]) p.ring(b.x, b.y, Math.round(b.r + (1 - touch.burn) * 26), 2, C.fire[1], touch.burn);   // the burst when he lights up
+  if (touch.burn > 0) for (const b of [{ x: bx, y: by, r: 15 }, ...Object.values(lay)]) p.ring(b.x, b.y, Math.round(b.r + (1 - touch.burn) * 26), 2, C.fire[1], touch.burn);   // the burst when he lights up
   if (hot) burn(bx, by, 15, 7);
   p.disc(bx, by, 15, hot ? hex("#3a0a04") : INK, 0.3); p.ring(bx, by, 15, 1, hot ? fireRim : s ? dim : faint);
   if (s) {
@@ -2450,7 +2630,7 @@ function drawTouch(p) {
   } else {
     p.tri(bx - 12, by, bx - 7, by - 4, bx - 7, by + 4, dim); p.tri(bx + 12, by, bx + 7, by - 4, bx + 7, by + 4, dim);
   }
-  for (const [n, b] of Object.entries(TBTN)) {
+  for (const [n, b] of Object.entries(lay)) {
     const on = held.has(n), ready = n === "sp" && me.sp >= 1, blink = Math.floor(worldT * 6) % 2;
     const label = n === "act" ? smartLabel() : n === "dash" ? "DASH" : "SP";
     // the big button takes the color of what it will do: gold to score, the player's color to defend
@@ -2464,7 +2644,7 @@ function drawTouch(p) {
   // pause
   veil(p, 229, 3, 15, 12, INK, 0.7); frameBox(p, 229, 3, 15, 12, dim); p.rect(233, 6, 2, 6, WHITE); p.rect(238, 6, 2, 6, WHITE);
   // a reminder at the start of a game
-  if (clock > GAME_TIME - 6 && !overtime) p.text("LEFT THUMB: MOVE   RIGHT THUMB: BIG BUTTON DOES IT ALL, DASH NEXT TO IT", 160, 104, WHITE, { align: "center", outline: INK, a: Math.min(1, (clock - (GAME_TIME - 6)) / 1.5) });
+  if (!tut && clock > GAME_TIME - 6 && !overtime) p.text("LEFT THUMB: MOVE   RIGHT THUMB: BIG BUTTON DOES IT ALL, DASH NEXT TO IT", 160, 104, WHITE, { align: "center", outline: INK, a: Math.min(1, (clock - (GAME_TIME - 6)) / 1.5) });
 }
 
 // each top corner holds a small portrait; hovering it (or pinning it with a click / H) opens the passive and special card
@@ -2497,13 +2677,14 @@ function drawHud() {
   const p = painterFor(hud); p.place(0, 0);
   buttons = []; infoBoxes = []; if (screen !== "select") cards = [];
   if (screen === "select") { drawSelect(p); return; }
+  if (screen === "settings") { drawSettings(p); mouse.moved = false; return; }
   if (screen === "menu" || screen === "howto") {
     veil(p, 0, 0, W, H, INK, 0.45);
     if (screen === "howto") { drawHowTo(p); return; }
     p.text("PIXEL HOOPS", 160, 30, C.gold, { font: "big", scale: 3, align: "center", outline: INK, shadow: hex("#7a3b5c") });
     p.text("1 ON 1 STREETBALL MAYHEM", 160, 58, WHITE, { align: "center", outline: INK });
     drawButtons(p, 110, 78, 100);
-    p.text("6 BALLERS  6 SPECIALS  5 KINDS OF CHAOS", 160, 146, C.line, { align: "center", outline: INK });
+    p.text("6 BALLERS  6 SPECIALS  5 KINDS OF CHAOS", 160, 160, C.line, { align: "center", outline: INK });
     p.text("EFFECTS BY PIXELFX", 6, 172, C.dim);
     p.text(muted ? "M SOUND OFF" : "M SOUND ON", 314, 172, C.dim, { align: "right" });
     return;
@@ -2514,7 +2695,7 @@ function drawHud() {
   p.text(b.ch.name, 216, 5, b.col, { align: "right" });
   p.text(String(a.score), 124, 12, a.col, { font: "big", align: "center", outline: INK });
   p.text(String(b.score), 196, 12, b.col, { font: "big", align: "center", outline: INK });
-  p.text(overtime ? "OT" : `${mm}:${ss}`, 160, 6, clock <= 10 && !overtime ? C.gold : WHITE, { font: "big", align: "center" });
+  if (tut) p.text("PRACTICE", 160, 7, C.gold, { align: "center" }); else p.text(overtime ? "OT" : `${mm}:${ss}`, 160, 6, clock <= 10 && !overtime ? C.gold : WHITE, { font: "big", align: "center" });
   // special meters
   for (const pl of players) {
     const x = pl.i ? 162 : 100, full = pl.sp >= 1, blink = Math.floor(worldT * 6) % 2;
@@ -2531,6 +2712,7 @@ function drawHud() {
   for (const pl of players) drawInfo(p, pl);
   drawChaosActive(p);
   drawTouch(p);
+  drawTutorial(p);
   if (banner) {
     const k = banner.max - banner.t, slide = Math.round(Math.max(0, 1 - k * 5) * -120 + Math.max(0, 1 - banner.t * 5) * 120);
     veil(p, 0, 92, W, 26, INK, 0.75);
@@ -2591,7 +2773,7 @@ window.hoops = {
   set clock(v) { clock = v; }, setPossession, step, startGame, startChaos, beginChaos, setScreen, endGame, render, startSelect, trySpecial, updateFreeze,
   set chosen(v) { chosen = v; },
   // a debug sheet of every baller, big: hoops.sheet(k, pose)
-  set hold(v) { hold = v; }, tick(dt = 1 / 60) { if (!updateFreeze(dt)) step(dt); menuInput(dt); pressed.clear(); }, passiveFx, hitFx, pop,
+  set hold(v) { hold = v; }, get tut() { return tut; }, get settings() { return settings; }, tick(dt = 1 / 60) { if (!updateFreeze(dt)) step(dt); menuInput(dt); pressed.clear(); }, passiveFx, hitFx, pop,
   sheet(k = 3, pose = "idle") {
     hold = true;
     clearFrame(hud); const p = painterFor(hud); p.place(0, 0); p.rect(0, 0, W, H, hex("#2a2440"));
@@ -2610,7 +2792,7 @@ function loop(now) {
   let dt = real;
   if (hitstop > 0) { hitstop -= real; dt = 0; }
   else if (slowmo > 0) { slowmo -= real; dt *= 0.3; }
-  if (screen !== "paused" && !updateFreeze(real)) step(dt);
+  if (screen !== "paused" && !(screen === "settings" && settingsBack === "paused") && !updateFreeze(real)) step(dt);
   const inMenu = screen !== "game";
   if (inMenu !== root.classList.contains("menu")) root.classList.toggle("menu", inMenu);   // the touch pad fades outside a game
   menuInput(real);
