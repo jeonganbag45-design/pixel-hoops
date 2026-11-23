@@ -142,8 +142,11 @@ const TBTN = {
 };
 // the action for a press right now: shoot (or dunk) with the ball; block or catch when the ball is in the air near you;
 // otherwise reach for a steal
+// with the ball in driving range of the rim, the big button dashes in and the dunk follows on its own
+const driveRange = (p) => { const f = courtSide(p); return ball.owner === p && p.onGround && f > 18 && f < 80 && p.dashCd <= 0 && !p.shooting; };
 function smartKey() {
   const me = players[0], opp = players[1];
+  if (driveRange(me)) return "DRIVE";
   if (ball.owner === me) return "KeyF";
   const threat = (opp.shooting || opp.dunk) && Math.abs(opp.x - me.x) < 60;
   const high = !ball.owner && Math.abs(ball.x - me.x) < 30 && ball.y < me.y - 36;
@@ -152,12 +155,12 @@ function smartKey() {
 }
 function smartLabel() {
   const me = players[0], opp = players[1];
-  if (ball.owner === me) return canDunk(me) ? "DUNK" : "SHOOT";
+  if (ball.owner === me) return driveRange(me) || canDunk(me) ? "DUNK" : "SHOOT";
   const k = smartKey();
   if (k === "KeyW") return opp.shooting || opp.dunk ? "BLOCK" : "CATCH";
   return ball.owner === opp ? "STEAL" : "GRAB";
 }
-const touch = { stick: null, btn: new Map() };
+const touch = { stick: null, btn: new Map(), lastUp: -1, lastDur: 9, autoDunk: 0, burn: 0, wasFire: false };
 const gameXY = (cx, cy) => { const r = canvas.getBoundingClientRect(); return [((cx - r.left) / r.width) * W, ((cy - r.top) / r.height) * H]; };
 const touchPlay = () => screen === "game" && phase !== "done";
 function stickKeys() {
@@ -174,12 +177,22 @@ addEventListener("touchstart", (e) => {
     const face = infoBoxes.find((b) => gx >= b.x && gx < b.x + b.w && gy >= b.y && gy < b.y + b.h);
     if (face) { pinned[face.i] = !pinned[face.i]; sfx.click(); continue; }
     if (gx < W * 0.45) {
-      if (!touch.stick) touch.stick = { id: t.identifier, ox: gx, oy: gy, sx: gx, sy: gy, x: gx, y: gy, t0: performance.now(), dir: 0, flicked: false, jumped: false };
+      if (!touch.stick) {
+        const now = performance.now();
+        touch.stick = { id: t.identifier, ox: gx, oy: gy, sx: gx, sy: gy, x: gx, y: gy, t0: now, dir: 0, jumped: false };
+        // a quick second tap is a dash, toward where you were going
+        if (now - touch.lastUp < 300 && touch.lastDur < 260) { pressed.add("KeyS"); buzz(12); touch.lastUp = -1; }
+      }
       continue;
     }
     let best = "act", bd = Infinity;
     for (const [n, b] of Object.entries(TBTN)) { const d = Math.hypot(gx - b.x, gy - b.y) / b.r; if (d < bd) { bd = d; best = n; } }
-    const key = best === "act" ? smartKey() : TBTN[best].key;
+    let key = best === "act" ? smartKey() : TBTN[best].key;
+    if (key === "DRIVE") {
+      // face the rim and dash; the dunk is pressed for you the moment it becomes possible
+      const me = players[0], toward = Math.sign(hoopOf(me).cx - me.x) || 1;
+      key = toward > 0 ? "KeyD" : "KeyA"; pressed.add("KeyS"); touch.autoDunk = 0.5;
+    }
     touch.btn.set(t.identifier, { name: best, key });
     pressed.add(key); keys.add(key);
   }
@@ -195,7 +208,6 @@ addEventListener("touchmove", (e) => {
     s.dir = dx > 4 ? 1 : dx < -4 ? -1 : 0;
     if (Math.abs(dx) > 16) s.ox = s.x - Math.sign(dx) * 16;                // the base trails the thumb, so turning around is instant
     // a quick flick sideways is a dash; sliding up is a jump (once per slide)
-    if (!s.flicked && performance.now() - s.t0 < 220 && Math.abs(s.x - s.sx) > 12) { s.flicked = true; pressed.add("KeyS"); }
     if (!s.jumped && s.sy - s.y > 14) { s.jumped = true; pressed.add("KeyW"); }
     if (s.jumped && s.sy - s.y < 6) s.jumped = false;
     stickKeys();
@@ -203,15 +215,28 @@ addEventListener("touchmove", (e) => {
 }, { passive: false });
 function touchEnd(e) {
   for (const t of e.changedTouches) {
-    if (touch.stick && t.identifier === touch.stick.id) { touch.stick = null; stickKeys(); }
+    if (touch.stick && t.identifier === touch.stick.id) { const now = performance.now(); touch.lastDur = now - touch.stick.t0; touch.lastUp = now; touch.stick = null; stickKeys(); }
     const b = touch.btn.get(t.identifier);
-    if (b) { touch.btn.delete(t.identifier); if (![...touch.btn.values()].some((o) => o.key === b.key)) keys.delete(b.key); }
+    if (b) { touch.btn.delete(t.identifier); if (![...touch.btn.values()].some((o) => o.key === b.key)) keys.delete(b.key); stickKeys(); }   // the stick keeps its direction
   }
 }
 addEventListener("touchend", touchEnd);
 addEventListener("touchcancel", touchEnd);
 // leaving a game (pause, the end) lets go of everything held
 function touchReset() { touch.stick = null; touch.btn.clear(); for (const k of ["KeyA", "KeyD", "KeyF", "KeyW", "KeyS", "KeyE"]) keys.delete(k); }
+function buzz(ms) { if (isTouch && !demo && navigator.vibrate) try { navigator.vibrate(ms); } catch {} }
+// each frame of a touch game: finish a drive with the dunk, and light the controls when BLAZE awakens
+function touchFrame(dt) {
+  if (!isTouch || demo || !players.length) return;
+  const me = players[0];
+  if (touch.autoDunk > 0) {
+    touch.autoDunk -= dt;
+    if (canDunk(me) && ball.owner === me) { pressed.add("KeyF"); touch.autoDunk = 0; }
+  }
+  if (me.fire && !touch.wasFire) { touch.burn = 1; buzz([30, 40, 60]); }
+  touch.wasFire = me.fire;
+  touch.burn = Math.max(0, touch.burn - dt * 1.4);
+}
 // help for thumbs: a human on a touch screen gets a little more reach on steals, blocks and dunks
 const assist = (p) => isTouch && !demo && p.tag !== "CPU";
 addEventListener("contextmenu", (e) => e.preventDefault());
@@ -1217,7 +1242,7 @@ function score(h, info = {}) {
   if (info.dunk) spawnH(critNum, { x: W / 2, y: 62, text: "+" + pts, label: word.replace(/!/g, "") });
   else spawnH(pow, { x: W / 2, y: 64, text: word });
   if (gold) quip("GOLDEN BALL  X2");
-  if (lit) { quip("AWAKENED: BIGGER, HIGHER, HOTTER"); pop(p, "AWAKENED!", C.fire[1]); for (let i = 0; i < 30; i++) part({ x: p.x + rnd(-12, 12), y: p.y - rnd(0, 44), vy: -rnd(40, 110), vx: rnd(-20, 20), g: -30, life: rnd(0.4, 0.9), c: pick(C.fire), s: 2, floor: false }); }
+  if (lit) { if (p === players[0]) buzz([30, 40, 60]); quip("AWAKENED: BIGGER, HIGHER, HOTTER"); pop(p, "AWAKENED!", C.fire[1]); for (let i = 0; i < 30; i++) part({ x: p.x + rnd(-12, 12), y: p.y - rnd(0, 44), vy: -rnd(40, 110), vx: rnd(-20, 20), g: -30, life: rnd(0.4, 0.9), c: pick(C.fire), s: 2, floor: false }); }
   if (info.dunk || lit || pts >= 3) spawnW(firework, { x: h.cx + h.dir * 50, y: 56 });
   if (!info.dunk) impact({ zoom: pts >= 3 ? 1.08 : 1.04, at: [h.cx, h.y + 6], shake: pts >= 3 ? 3 : 1.5, dy: 1 });
   if (!info.dunk) (pts >= 3 ? sfx.three : sfx.score)();
@@ -1302,6 +1327,7 @@ function updateChaos(dt) {
 
 // ---------- simulation ----------
 function step(dt) {
+  touchFrame(dt);
   stateT += dt; worldT += dt;
   for (const f of fxWorld) f.update(dt);
   for (const f of fxHud) f.update(dt);
@@ -1512,7 +1538,7 @@ const KO = {
   "QUIT TO MENU": "메인으로", "REMATCH": "한 판 더", "MENU": "메인으로", "PAUSED": "일시정지", "DRAW": "무승부", "PASSIVE": "패시브", 
   "1 ON 1 STREETBALL MAYHEM": "1대1 길거리 농구 난장판", "6 BALLERS  6 SPECIALS  5 KINDS OF CHAOS": "선수 6명 · 필살기 6개 · 카오스 5종",
   "M SOUND OFF": "M 소리 꺼짐", "M SOUND ON": "M 소리 켜짐", "CHOOSE YOUR BALLER": "선수 선택", "WAITING FOR P1": "P1 고르는 중...",
-  "GET READY!": "준비!", "SHOOT": "슛", "STEAL": "스틸", "JUMP": "점프", "BLOCK": "블락", "LEFT: SLIDE TO MOVE, FLICK TO DASH   RIGHT: ONE BUTTON DOES IT ALL": "왼쪽: 밀면 이동, 튕기면 대시   오른쪽: 버튼 하나로 다 됨", "DUNK": "덩크", "CATCH": "잡기", "GRAB": "줍기", "SPECIAL MOVE": "필살기",
+  "GET READY!": "준비!", "SHOOT": "슛", "STEAL": "스틸", "JUMP": "점프", "BLOCK": "블락", "LEFT: SLIDE TO MOVE, DOUBLE TAP TO DASH   RIGHT: ONE BUTTON DOES IT ALL": "왼쪽: 밀면 이동, 두 번 톡 = 대시   오른쪽: 버튼 하나로 다 됨", "DUNK": "덩크", "CATCH": "잡기", "GRAB": "줍기", "SPECIAL MOVE": "필살기",
   "< > OR A D TO PICK   F / ENTER TO LOCK   ESC BACK": "< > / A D 고르기   F / ENTER 확정   ESC 뒤로",
   "P1: A D + F     P2: < > + ENTER     ESC BACK": "P1  A D + F    P2  < > + ENTER    ESC 뒤로",
   "MOVE": "이동", "JUMP / BLOCK": "점프 / 블락", "DASH": "대시", "SHOOT / STEAL": "슛 / 스틸",
@@ -2273,28 +2299,41 @@ function drawTouch(p) {
   const me = players[0], held = new Set([...touch.btn.values()].map((b) => b.name)), s = touch.stick;
   const dim = lerpC(WHITE, INK, 0.45), faint = lerpC(WHITE, INK, 0.7);
   const bx = Math.round(s ? s.ox : 42), by = Math.round(s ? s.oy : 150);
-  p.disc(bx, by, 15, INK, 0.3); p.ring(bx, by, 15, 1, s ? dim : faint);
+  const hot = me.fire, flick = Math.floor(worldT * 12) % 2, fireRim = flick ? C.fire[1] : C.fire[2];
+  // flames licking up from a control's rim while awakened
+  const burn = (x, y, r, n) => {
+    for (let i = 0; i < n; i++) {
+      const a = Math.PI + (i / (n - 1)) * Math.PI, fx = x + Math.cos(a) * r, fy = y + Math.sin(a) * r;
+      const fl = 2 + Math.round((Math.sin(worldT * 18 + i * 2.1) + 1) * 2.5) + Math.round(touch.burn * 6);
+      p.rect(Math.round(fx), Math.round(fy) - fl, 2, fl, C.fire[(i + Math.floor(worldT * 10)) % 3]);
+    }
+    p.glow(x, y, r + 8, hex("#ff6a1a"), 0.35 + touch.burn * 0.5);
+  };
+  if (touch.burn > 0) for (const b of [{ x: bx, y: by, r: 15 }, ...Object.values(TBTN)]) p.ring(b.x, b.y, Math.round(b.r + (1 - touch.burn) * 26), 2, C.fire[1], touch.burn);   // the burst when he lights up
+  if (hot) burn(bx, by, 15, 7);
+  p.disc(bx, by, 15, hot ? hex("#3a0a04") : INK, 0.3); p.ring(bx, by, 15, 1, hot ? fireRim : s ? dim : faint);
   if (s) {
     const kx = Math.round(bx + clamp(s.x - s.ox, -15, 15)), ky = Math.round(by + clamp(s.y - s.oy, -8, 4));
-    p.disc(kx, ky, 7, me.col, 0.75); p.ring(kx, ky, 7, 1, WHITE);
+    p.disc(kx, ky, 7, hot ? C.fire[1] : me.col, 0.8); p.ring(kx, ky, 7, 1, hot ? C.fire[2] : WHITE);
   } else {
     p.tri(bx - 12, by, bx - 7, by - 4, bx - 7, by + 4, dim); p.tri(bx + 12, by, bx + 7, by - 4, bx + 7, by + 4, dim);
-    p.tri(bx, by - 12, bx - 4, by - 7, bx + 4, by - 7, faint);
+    p.text("2x", bx, by + 9, faint, { align: "center" });
   }
   for (const [n, b] of Object.entries(TBTN)) {
     const on = held.has(n), ready = n === "sp" && me.sp >= 1, blink = Math.floor(worldT * 6) % 2;
     const label = n === "act" ? smartLabel() : "SP";
     // the big button takes the color of what it will do: gold to score, the player's color to defend
-    const col = n === "sp" ? (ready ? C.gold : dim) : label === "SHOOT" || label === "DUNK" ? C.gold : me.col;
-    p.disc(b.x, b.y, b.r, on ? col : INK, on ? 0.8 : 0.45);
-    p.ring(b.x, b.y, b.r, on || (ready && blink) ? 2 : 1, on ? WHITE : col);
+    const col = hot && n === "act" ? fireRim : n === "sp" ? (ready ? C.gold : dim) : label === "SHOOT" || label === "DUNK" ? C.gold : me.col;
+    if (hot && n === "act") burn(b.x, b.y, b.r, 11);
+    p.disc(b.x, b.y, b.r, on ? col : hot && n === "act" ? hex("#3a0a04") : INK, on ? 0.8 : 0.45);
+    p.ring(b.x, b.y, b.r, on || (ready && blink) || hot ? 2 : 1, on ? WHITE : col);
     if (n === "act") p.ring(b.x, b.y, b.r - 4, 1, lerpC(col, INK, 0.6));
     p.text(label, b.x, b.y - 2, on ? INK : n === "sp" && !ready ? dim : WHITE, { align: "center", outline: on ? undefined : INK });
   }
   // pause
   veil(p, 229, 3, 15, 12, INK, 0.7); frameBox(p, 229, 3, 15, 12, dim); p.rect(233, 6, 2, 6, WHITE); p.rect(238, 6, 2, 6, WHITE);
   // a reminder at the start of a game
-  if (clock > GAME_TIME - 6 && !overtime) p.text("LEFT: SLIDE TO MOVE, FLICK TO DASH   RIGHT: ONE BUTTON DOES IT ALL", 160, 104, WHITE, { align: "center", outline: INK, a: Math.min(1, (clock - (GAME_TIME - 6)) / 1.5) });
+  if (clock > GAME_TIME - 6 && !overtime) p.text("LEFT: SLIDE TO MOVE, DOUBLE TAP TO DASH   RIGHT: ONE BUTTON DOES IT ALL", 160, 104, WHITE, { align: "center", outline: INK, a: Math.min(1, (clock - (GAME_TIME - 6)) / 1.5) });
 }
 
 // each top corner holds a small portrait; hovering it (or pinning it with a click / H) opens the passive and special card
