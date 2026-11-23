@@ -131,6 +131,72 @@ if (pad) {
   pad.addEventListener("pointermove", (e) => { if (fingers.has(e.pointerId)) { fingers.set(e.pointerId, e.clientX); readPad(); } });
   for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) pad.addEventListener(ev, (e) => { fingers.delete(e.pointerId); readPad(); });
 }
+// ---- touch play: one surface over the whole screen, read finger by finger (touch events track each finger
+// reliably on phones). The left side is a floating stick: put a thumb down anywhere, slide to run, flick to dash,
+// slide up to jump. The right side is four buttons, and a touch counts for the nearest one, so nothing is missed.
+// The controls are drawn inside the game, in its own pixels (see drawTouch).
+const TBTN = {
+  shoot: { x: 293, y: 151, r: 16, key: "KeyF" },
+  jump: { x: 258, y: 160, r: 12, key: "KeyW" },
+  dash: { x: 256, y: 131, r: 10, key: "KeyS" },
+  sp: { x: 290, y: 121, r: 10, key: "KeyE" },
+};
+const touch = { stick: null, btn: new Map() };
+const gameXY = (cx, cy) => { const r = canvas.getBoundingClientRect(); return [((cx - r.left) / r.width) * W, ((cy - r.top) / r.height) * H]; };
+const touchPlay = () => screen === "game" && phase !== "done";
+function stickKeys() {
+  const s = touch.stick, dir = s ? s.dir : 0;
+  for (const [on, k] of [[dir < 0, "KeyA"], [dir > 0, "KeyD"]]) { if (on && !keys.has(k)) pressed.add(k); if (on) keys.add(k); else keys.delete(k); }
+}
+addEventListener("touchstart", (e) => {
+  goTouch(); audio();
+  if (!touchPlay()) return;                                   // menus and panels: taps go to the canvas as clicks
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    const [gx, gy] = gameXY(t.clientX, t.clientY);
+    if (gx > 226 && gx < 246 && gy < 18) { pressed.add("Escape"); continue; }                     // the pause icon
+    const face = infoBoxes.find((b) => gx >= b.x && gx < b.x + b.w && gy >= b.y && gy < b.y + b.h);
+    if (face) { pinned[face.i] = !pinned[face.i]; sfx.click(); continue; }
+    if (gx < W * 0.45) {
+      if (!touch.stick) touch.stick = { id: t.identifier, ox: gx, oy: gy, sx: gx, sy: gy, x: gx, y: gy, t0: performance.now(), dir: 0, flicked: false, jumped: false };
+      continue;
+    }
+    let best = "shoot", bd = Infinity;
+    for (const [n, b] of Object.entries(TBTN)) { const d = Math.hypot(gx - b.x, gy - b.y) / b.r; if (d < bd) { bd = d; best = n; } }
+    touch.btn.set(t.identifier, best);
+    pressed.add(TBTN[best].key); keys.add(TBTN[best].key);
+  }
+}, { passive: false });
+addEventListener("touchmove", (e) => {
+  if (!touch.stick && !touch.btn.size) return;
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    const s = touch.stick;
+    if (!s || t.identifier !== s.id) continue;
+    [s.x, s.y] = gameXY(t.clientX, t.clientY);
+    const dx = s.x - s.ox;
+    s.dir = dx > 4 ? 1 : dx < -4 ? -1 : 0;
+    if (Math.abs(dx) > 16) s.ox = s.x - Math.sign(dx) * 16;                // the base trails the thumb, so turning around is instant
+    // a quick flick sideways is a dash; sliding up is a jump (once per slide)
+    if (!s.flicked && performance.now() - s.t0 < 220 && Math.abs(s.x - s.sx) > 12) { s.flicked = true; pressed.add("KeyS"); }
+    if (!s.jumped && s.sy - s.y > 14) { s.jumped = true; pressed.add("KeyW"); }
+    if (s.jumped && s.sy - s.y < 6) s.jumped = false;
+    stickKeys();
+  }
+}, { passive: false });
+function touchEnd(e) {
+  for (const t of e.changedTouches) {
+    if (touch.stick && t.identifier === touch.stick.id) { touch.stick = null; stickKeys(); }
+    const b = touch.btn.get(t.identifier);
+    if (b) { touch.btn.delete(t.identifier); if (![...touch.btn.values()].includes(b)) keys.delete(TBTN[b].key); }
+  }
+}
+addEventListener("touchend", touchEnd);
+addEventListener("touchcancel", touchEnd);
+// leaving a game (pause, the end) lets go of everything held
+function touchReset() { touch.stick = null; touch.btn.clear(); for (const k of ["KeyA", "KeyD", "KeyF", "KeyW", "KeyS", "KeyE"]) keys.delete(k); }
+// help for thumbs: a human on a touch screen gets a little more reach on steals, blocks and dunks
+const assist = (p) => isTouch && !demo && p.tag !== "CPU";
 addEventListener("contextmenu", (e) => e.preventDefault());
 const mouse = { x: -1, y: -1, moved: false };
 const toGame = (e) => { const r = canvas.getBoundingClientRect(); return [((e.clientX - r.left) / r.width) * W, ((e.clientY - r.top) / r.height) * H]; };
@@ -139,6 +205,7 @@ canvas.addEventListener("pointermove", (e) => { [mouse.x, mouse.y] = toGame(e); 
 canvas.addEventListener("pointerleave", () => { mouse.x = mouse.y = -1; });
 canvas.addEventListener("pointerdown", (e) => {
   audio();
+  if (e.pointerType === "touch" && touchPlay()) return;
   [mouse.x, mouse.y] = toGame(e);
   const face = infoBoxes.find(inside);
   if (face) { pinned[face.i] = !pinned[face.i]; sfx.click(); return; }
@@ -408,7 +475,7 @@ function newGame(kind) {
 }
 function startGame(kind) { newGame(kind); setScreen("game"); }
 function toMenu() { newGame("demo"); setScreen("menu"); }
-function setScreen(s) { screen = s; menuSel = 0; if (s === "over") stateT = 0; }
+function setScreen(s) { screen = s; menuSel = 0; touchReset(); if (s === "over") stateT = 0; }
 function startSelect(mode) {
   sel = { mode, cur: [chosen[0], chosen[1]], lock: [false, false], spin: 0, go: 0 };
   setScreen("select");
@@ -765,7 +832,7 @@ function updateDunk(p, dt) {
 
 function startDash(p, dir) {
   const opp = other(p);
-  p.dashT = 0.2; p.dunkWin = 0.35; p.dashDir = dir; p.facing = dir; p.dashRolled = false;
+  p.dashT = 0.2; p.dunkWin = assist(p) ? 0.55 : 0.35; p.dashDir = dir; p.facing = dir; p.dashRolled = false;
   // every dash spends a charge (VOLT carries two); an empty charge refills in 0.85 s
   p.charges--; p.dashGap = 0.22; if (p.rechargeT <= 0) p.rechargeT = 0.85; p.dashCd = 0.22;
   if (p.ch.name === "VOLT" && p.charges === 0) passiveFx(p);                      // the second dash in a row: nobody else has one
@@ -802,10 +869,10 @@ function dashContact(p) {
 
 function trySteal(p, opp) {
   p.cd = 0.7; p.swipe = 0.18; p.facing = Math.sign(opp.x - p.x) || p.facing;
-  const dx = opp.x - p.x, reach = Math.abs(dx) <= (p.fire ? 30 : 24) && Math.abs(opp.y - p.y) <= 24 && !opp.shooting && !opp.dunk;
+  const dx = opp.x - p.x, reach = Math.abs(dx) <= (p.fire ? 30 : 24) + (assist(p) ? 6 : 0) && Math.abs(opp.y - p.y) <= 24 && !opp.shooting && !opp.dunk;
   const ballSide = opp.facing === Math.sign(p.x - opp.x);                          // reaching in on the dribble hand
   const sticky = p.ch.name === "SHADE";
-  if (!reach || Math.random() > (ballSide ? 0.5 : 0.18) * p.ch.def * (sticky ? 1.5 : 1)) { p.whiff = sticky ? 0.2 : 0.45; say(p, "WHIFF", C.dim); sfx.whoosh(); return; }
+  if (!reach || Math.random() > (ballSide ? 0.5 : 0.18) * p.ch.def * (sticky ? 1.5 : 1) * (assist(p) ? 1.3 : 1)) { p.whiff = sticky ? 0.2 : 0.45; say(p, "WHIFF", C.dim); sfx.whoosh(); return; }
   const [hx, hy] = ballHeld(opp);
   dropBall(opp, -Math.sign(dx) * 45, -90);
   opp.stun = 0.45; opp.flash = 0.08; gainSp(p, 0.15);
@@ -1061,7 +1128,7 @@ function updateBall(dt) {
   if (ball.live && ball.vy < 0 && ball.age < 0.5 && !ball.granny) {
     const s = ball.shooter, d = other(s);
     if (!d.onGround && d.frozen <= 0 && Math.abs(ball.x - d.x) < (d.fire ? 12 : 9) && ball.y > d.y - (d.fire ? 63 : 56) && ball.y < d.y - 34) return snatch(d);   // right in his hands
-    if (!d.onGround && d.frozen <= 0 && Math.abs(ball.x - d.x) < 12 && ball.y > d.y - 60 && ball.y < d.y - 12) {
+    if (!d.onGround && d.frozen <= 0 && Math.abs(ball.x - d.x) < (assist(d) ? 16 : 12) && ball.y > d.y - 60 && ball.y < d.y - 12) {
       ball.live = false; ball.blocked = true; ball.vx = -ball.vx * 0.5 + d.facing * 30; ball.vy = 50;
       hitFx("block", ball.x, ball.y, d.col, d.facing); pop(d, "BLOCK!", C.gold);
       impact({ stop: 0.12, zoom: 1.1, at: [ball.x, ball.y], shake: 5, dx: d.facing });
@@ -1428,7 +1495,7 @@ const KO = {
   "QUIT TO MENU": "메인으로", "REMATCH": "한 판 더", "MENU": "메인으로", "PAUSED": "일시정지", "DRAW": "무승부", "PASSIVE": "패시브", 
   "1 ON 1 STREETBALL MAYHEM": "1대1 길거리 농구 난장판", "6 BALLERS  6 SPECIALS  5 KINDS OF CHAOS": "선수 6명 · 필살기 6개 · 카오스 5종",
   "M SOUND OFF": "M 소리 꺼짐", "M SOUND ON": "M 소리 켜짐", "CHOOSE YOUR BALLER": "선수 선택", "WAITING FOR P1": "P1 고르는 중...",
-  "GET READY!": "준비!", "SPECIAL MOVE": "필살기",
+  "GET READY!": "준비!", "SHOOT": "슛", "STEAL": "스틸", "JUMP": "점프", "BLOCK": "블락", "SLIDE: MOVE   FLICK: DASH   UP: JUMP": "밀기: 이동   튕기기: 대시   위로: 점프", "SPECIAL MOVE": "필살기",
   "< > OR A D TO PICK   F / ENTER TO LOCK   ESC BACK": "< > / A D 고르기   F / ENTER 확정   ESC 뒤로",
   "P1: A D + F     P2: < > + ENTER     ESC BACK": "P1  A D + F    P2  < > + ENTER    ESC 뒤로",
   "MOVE": "이동", "JUMP / BLOCK": "점프 / 블락", "DASH": "대시", "SHOOT / STEAL": "슛 / 스틸",
@@ -2182,6 +2249,35 @@ function drawChaosActive(p) {
   } else p.text("NEXT SCORE", x + w / 2, y + (ko ? 14 : 9), WHITE, { align: "center" });
 }
 
+// the touch controls, in the game's pixels: the stick appears under the thumb, the buttons light up while held
+// and say what they will do right now (shoot or steal, jump or block)
+function drawTouch(p) {
+  if (!isTouch || screen !== "game") return;
+  const me = players[0], opp = players[1], held = new Set(touch.btn.values()), s = touch.stick;
+  const dim = lerpC(WHITE, INK, 0.45), faint = lerpC(WHITE, INK, 0.7);
+  const bx = Math.round(s ? s.ox : 42), by = Math.round(s ? s.oy : 150);
+  p.disc(bx, by, 15, INK, 0.3); p.ring(bx, by, 15, 1, s ? dim : faint);
+  if (s) {
+    const kx = Math.round(bx + clamp(s.x - s.ox, -15, 15)), ky = Math.round(by + clamp(s.y - s.oy, -8, 4));
+    p.disc(kx, ky, 7, me.col, 0.75); p.ring(kx, ky, 7, 1, WHITE);
+  } else {
+    p.tri(bx - 12, by, bx - 7, by - 4, bx - 7, by + 4, dim); p.tri(bx + 12, by, bx + 7, by - 4, bx + 7, by + 4, dim);
+    p.tri(bx, by - 12, bx - 4, by - 7, bx + 4, by - 7, faint);
+  }
+  for (const [n, b] of Object.entries(TBTN)) {
+    const on = held.has(n), ready = n === "sp" && me.sp >= 1, blink = Math.floor(worldT * 6) % 2;
+    const col = n === "shoot" ? C.gold : n === "sp" ? (ready ? C.gold : dim) : n === "dash" ? me.col : WHITE;
+    p.disc(b.x, b.y, b.r, on ? col : INK, on ? 0.8 : 0.4);
+    p.ring(b.x, b.y, b.r, on || (ready && blink) ? 2 : 1, on ? WHITE : col);
+    const label = n === "shoot" ? (ball.owner === opp ? "STEAL" : "SHOOT") : n === "jump" ? (opp.shooting || opp.dunk ? "BLOCK" : "JUMP") : n === "dash" ? "DASH" : "SP";
+    p.text(label, b.x, b.y - 2, on ? INK : WHITE, { align: "center", outline: on ? undefined : INK });
+  }
+  // pause
+  veil(p, 229, 3, 15, 12, INK, 0.7); frameBox(p, 229, 3, 15, 12, dim); p.rect(233, 6, 2, 6, WHITE); p.rect(238, 6, 2, 6, WHITE);
+  // a reminder at the start of a game
+  if (clock > GAME_TIME - 6 && !overtime) p.text("SLIDE: MOVE   FLICK: DASH   UP: JUMP", 70, 112, WHITE, { align: "center", outline: INK, a: Math.min(1, (clock - (GAME_TIME - 6)) / 1.5) });
+}
+
 // each top corner holds a small portrait; hovering it (or pinning it with a click / H) opens the passive and special card
 function drawInfo(p, pl) {
   const right = pl.i === 1, ch = pl.ch, ready = pl.sp >= 1, blink = Math.floor(worldT * 6) % 2;
@@ -2245,6 +2341,7 @@ function drawHud() {
   infoBoxes = [];
   for (const pl of players) drawInfo(p, pl);
   drawChaosActive(p);
+  drawTouch(p);
   if (banner) {
     const k = banner.max - banner.t, slide = Math.round(Math.max(0, 1 - k * 5) * -120 + Math.max(0, 1 - banner.t * 5) * 120);
     veil(p, 0, 92, W, 26, INK, 0.75);
@@ -2305,7 +2402,7 @@ window.hoops = {
   set clock(v) { clock = v; }, setPossession, step, startGame, startChaos, beginChaos, setScreen, endGame, render, startSelect, trySpecial, updateFreeze,
   set chosen(v) { chosen = v; },
   // a debug sheet of every baller, big: hoops.sheet(k, pose)
-  set hold(v) { hold = v; }, passiveFx, hitFx, pop,
+  set hold(v) { hold = v; }, tick(dt = 1 / 60) { if (!updateFreeze(dt)) step(dt); menuInput(dt); pressed.clear(); }, passiveFx, hitFx, pop,
   sheet(k = 3, pose = "idle") {
     hold = true;
     clearFrame(hud); const p = painterFor(hud); p.place(0, 0); p.rect(0, 0, W, H, hex("#2a2440"));
@@ -2315,6 +2412,7 @@ window.hoops = {
 };
 let last = performance.now(), hold = false;
 function loop(now) {
+  if (hold) { last = now; requestAnimationFrame(loop); return; }   // debug: the test drives the frames
   const real = Math.min(1 / 30, (now - last) / 1000);
   last = now;
   let dt = real;
