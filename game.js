@@ -138,7 +138,8 @@ if (pad) {
 // one big button does whatever the moment needs (smartKey), and a small one fires the special when it's charged
 const TBTN = {
   act: { x: 290, y: 148, r: 21 },
-  sp: { x: 252, y: 160, r: 11, key: "KeyE" },
+  dash: { x: 250, y: 133, r: 13, key: "KeyS" },
+  sp: { x: 298, y: 112, r: 10, key: "KeyE" },
 };
 // the action for a press right now: shoot (or dunk) with the ball; block or catch when the ball is in the air near you;
 // otherwise reach for a steal
@@ -180,8 +181,6 @@ addEventListener("touchstart", (e) => {
       if (!touch.stick) {
         const now = performance.now();
         touch.stick = { id: t.identifier, ox: gx, oy: gy, sx: gx, sy: gy, x: gx, y: gy, t0: now, dir: 0, jumped: false };
-        // a quick second tap is a dash, toward where you were going
-        if (now - touch.lastUp < 300 && touch.lastDur < 260) { pressed.add("KeyS"); buzz(12); touch.lastUp = -1; }
       }
       continue;
     }
@@ -282,6 +281,7 @@ function audio() {
     const n = ac.sampleRate * 2; white = ac.createBuffer(1, n, ac.sampleRate);
     const d = white.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
     startAmbience();
+    musicInit();
   } catch { ac = false; }
   if (ac && ac.state === "suspended") ac.resume();
 }
@@ -329,6 +329,7 @@ function startAmbience() {
 let stompT = 0;
 function updateAmbience() {
   if (!amb) return;
+  updateMusic();
   const live = screen === "game" || screen === "over", v = muted || !live ? 0 : 0.06 + hype * 0.16;
   amb.gain.setTargetAtTime(v, ac.currentTime, 0.25);
   // when the game is hot the crowd stomps along
@@ -375,6 +376,78 @@ const crowd$ = {
   // cheering the clock down, or the winner
   chant() { for (let k = 0; k < 3; k++) { for (let i = 0; i < 6; i++) vox(rnd(200, 320), 0.18, { v: "e", to: "o", vol: 0.04, delay: k * 0.42 + rnd(0, 0.03) }); noise(0.05, 0.12, 2500, k * 0.42 + 0.21, "bandpass", 1.5); } },
 };
+
+// ---------- music ----------
+// A boom-bap loop built from the same synths, scheduled a beat ahead of the audio clock. It follows the game:
+// laid back on the menu, the full groove in play, an arpeggio on top when the crowd is hot, faster and tenser in
+// the last 10 seconds and in overtime. It dips under the big moments. N switches it off and on.
+const music = { on: true, bus: null, next: 0, step: 0, bpm: 92, mode: "menu", duck: 0, lastMode: "" };
+(() => { try { music.on = localStorage.getItem("hoops.music") !== "off"; } catch {} })();
+function musicInit() {
+  music.bus = ac.createGain(); music.bus.gain.value = 0;
+  const lp = ac.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 9000; music.lp = lp;
+  music.bus.connect(lp).connect(out);
+  music.next = ac.currentTime + 0.15;
+  setInterval(musicTick, 25);
+}
+const M = {
+  kick(t, v = 1) { const o = ac.createOscillator(), g = ac.createGain(); o.type = "sine"; o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.13); g.gain.setValueAtTime(0.9 * v, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.28); o.connect(g).connect(music.bus); o.start(t); o.stop(t + 0.3); },
+  noise(t, dur, vol, freq, type = "bandpass", q = 1) { const s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain(); f.type = type; f.frequency.value = freq; f.Q.value = q; g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur); s.buffer = white; s.connect(f).connect(g).connect(music.bus); s.start(t, Math.random() * 1.5, dur + 0.02); },
+  snare(t, v = 1) { M.noise(t, 0.16, 0.42 * v, 1900, "bandpass", 0.7); M.tone(t, 185, 0.07, "triangle", 0.25 * v); },
+  hat(t, open = false, v = 1) { M.noise(t, open ? 0.14 : 0.035, (open ? 0.12 : 0.1) * v, 8000, "highpass", 1); },
+  tone(t, f, dur, type, vol, cutoff = 0) {
+    const o = ac.createOscillator(), g = ac.createGain(); o.type = type; o.frequency.setValueAtTime(f, t);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    if (cutoff) { const lp = ac.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = cutoff; lp.Q.value = 5; o.connect(lp).connect(g); } else o.connect(g);
+    g.connect(music.bus); o.start(t); o.stop(t + dur + 0.02);
+  },
+};
+// A minor: Am, F, C, G, a bar each; the overtime loop goes darker (Am, Dm, Em, Am)
+const CHORDS = { main: [[110, 0], [87.31, 1], [130.81, 1], [98, 1]], dark: [[110, 0], [73.42, 0], [82.41, 0], [110, 0]] };
+const triad = (root, major) => [root * 2, root * 2 * (major ? 1.26 : 1.189), root * 3];
+function musicTick() {
+  if (!ac || !music.bus) return;
+  while (music.next < ac.currentTime + 0.12) {
+    playStep(music.step, music.next);
+    const swing = music.step % 2 ? 0.92 : 1.08;                   // a little swing on the 16ths
+    music.next += (60 / music.bpm / 4) * swing;
+    music.step++;
+  }
+}
+function playStep(s, t) {
+  const mode = music.mode, i = s % 16, bar = Math.floor(s / 16) % 4;
+  if (mode === "silent") return;
+  const prog = CHORDS[mode === "ot" ? "dark" : "main"], [root, major] = prog[bar], ch = triad(root, major);
+  const hot = mode === "final" || mode === "ot" || hype > 0.55, chill = mode === "menu" || mode === "paused";
+  // drums: boom bap
+  if (i === 0 || i === 10 || (!chill && i === 7 && bar % 2)) M.kick(t, chill ? 0.7 : 1);
+  if (i === 4 || i === 12) M.snare(t, chill ? 0.5 : 1);
+  if (!chill && i === 15 && bar === 3) M.snare(t, 0.5);
+  if (i % 2 === 0 || hot) M.hat(t, i === 14 && !chill, i % 4 === 2 ? 1 : 0.6);
+  // bass
+  const bassAt = { 0: 1, 3: 1, 6: 2, 8: 1, 10: 1.5, 14: 2 };
+  if (bassAt[i] && !(chill && i % 4)) M.tone(t, root * (bassAt[i] === 2 ? 2 : bassAt[i] === 1.5 ? 1.5 : 1), 0.22, "sawtooth", 0.22, 520);
+  // a soft chord stab, and the arpeggio when it's hot
+  if (!chill && (i === 2 || i === 10)) for (const f of ch) M.tone(t, f * 2, 0.12, "square", 0.025, 2400);
+  if (chill && i === 0) for (const f of ch) M.tone(t, f * 2, 1.2, "triangle", 0.03);
+  if (hot && i % 2 === 0) M.tone(t, ch[(i / 2) % 3] * 4, 0.09, "square", 0.022, 3000);
+  // the last seconds: a riser every bar
+  if (mode === "final" && i === 0) M.noise(t, 60 / music.bpm * 4, 0.05, 3000, "bandpass", 2);
+}
+// set each frame from the game state
+function updateMusic() {
+  if (!ac || !music.bus) return;
+  const mode = !music.on || muted ? "silent"
+    : screen === "game" ? (overtime ? "ot" : clock <= 10 && phase !== "countdown" ? "final" : "game")
+    : screen === "paused" ? "paused" : screen === "over" ? "silent" : "menu";
+  music.mode = mode;
+  music.bpm = { menu: 88, paused: 88, game: 94 + hype * 6, final: 112, ot: 104, silent: 94 }[mode];
+  music.duck = Math.max(0, music.duck - 1 / 60 / 0.9);
+  const vol = mode === "silent" ? 0 : (mode === "paused" ? 0.12 : 0.3) * (1 - music.duck * 0.7);
+  music.bus.gain.setTargetAtTime(vol, ac.currentTime, 0.08);
+  music.lp.frequency.setTargetAtTime(mode === "paused" ? 700 : 9000, ac.currentTime, 0.1);
+}
+const duckMusic = (k = 1) => { music.duck = Math.max(music.duck, k); };
 
 // Each baller has a voice (pitch, timbre, wobble) and a sound of his element that rides on top of it.
 const VOICE = {
@@ -430,6 +503,12 @@ const sfx = {
   crack: () => { noise(0.12, 0.2, 3000); beep(140, 0.25, "sawtooth", 0.06, -90, 0.05); },
   boing: () => beep(220, 0.35, "sine", 0.1, 500),
   ooh: () => crowd$.ooh(),
+  whistle: () => { for (let i = 0; i < 7; i++) beep(i % 2 ? 2650 : 2900, 0.05, "sine", 0.07, 0, i * 0.045); beep(2800, 0.35, "sine", 0.06, -60, 0.32); },
+  dribble: (v = 1) => { beep(105, 0.07, "sine", 0.16 * v, -40); noise(0.04, 0.05 * v, 700); },
+  board: () => { noise(0.12, 0.16, 900); beep(160, 0.18, "triangle", 0.08, -50); beep(620, 0.12, "square", 0.02, -200, 0.01); },
+  clockTick: (last) => beep(last ? 1320 : 990, last ? 0.3 : 0.08, "square", 0.05),
+  roll: () => noise(0.05, 0.1, 1900, 0, "bandpass", 0.8),
+  thump: () => { beep(70, 0.12, "sine", 0.2, -20); noise(0.08, 0.1, 300); },
   squeak: () => beep(rnd(2400, 3200), 0.06, "sine", 0.025, rnd(-600, 400)),
   laugh: () => { for (let i = 0; i < 6; i++) beep(rnd(300, 420), 0.07, "triangle", 0.03, 0, i * 0.09); },
   fanfare: () => [523, 659, 784, 1046].forEach((f, i) => beep(f, 0.12, "square", 0.04, 0, i * 0.08)),
@@ -942,7 +1021,7 @@ function trySpecial(p) {
   if (p.ch.name === "SHADE" && ball.owner === p) { say(p, "GOT IT ALREADY", C.dim); return; }
   p.sp = 0;
   if (demo) { SPECIALS[p.ch.name](p); return; }
-  cutin = { p, t: 0, dur: 0.85, fn: () => SPECIALS[p.ch.name](p) };
+  cutin = { p, t: 0, dur: 0.85, fn: () => SPECIALS[p.ch.name](p) }; duckMusic(1);
   sfx.cutin(); say$(p, "big");
 }
 
@@ -1103,6 +1182,9 @@ function updatePlayer(p, c, dt) {
   p.x = clamp(p.x, 8, W - 8);
   if (p.y < 50) { p.y = 50; p.vy = Math.max(p.vy, 0); }                          // moon jumps stop at the rafters, not off the screen
   p.walk += Math.abs(p.vx) * dt;
+  const dirNow = Math.sign(Math.round(p.vx / 20));
+  if (dirNow && p.lastDir && dirNow !== p.lastDir && p.onGround && !demo && Math.random() < 0.7) sfx.squeak();   // a hard cut
+  if (dirNow) p.lastDir = dirNow;
   if (gravMul < 1 && !p.onGround && Math.random() < 0.3) part({ x: p.x + rnd(-3, 3), y: p.y, life: 0.4, c: C.moon, floor: false });
   for (const b of bananas) if (b.landed && p.onGround && Math.abs(p.vx) > 15 && Math.abs(b.x - p.x) < 7 && p.fallen <= 0) { slip(p, b); break; }
 }
@@ -1127,6 +1209,11 @@ function collidePoint(px, py) {
 }
 
 function updateBall(dt) {
+  if (ball.owner) {
+    const o = ball.owner, low = ball.y > FLOOR - BR - 4 && o.onGround && !o.shooting && !o.dunk && o.granny <= 0;
+    if (low && !o.dribbleLow && !demo) sfx.dribble(o.i === 0 ? 1 : 0.7);
+    o.dribbleLow = low;
+  }
   if (ball.owner) { [ball.x, ball.y] = ballHeld(ball.owner); ball.x = clamp(ball.x, BR, W - BR); ball.prevY = ball.y; ball.trail = []; return; }
   ball.age += dt; ball.prevY = ball.y;
   if (ball.homing) {
@@ -1150,12 +1237,15 @@ function updateBall(dt) {
     }
     const face = h.board + h.dir;
     if (!h.broken && ball.y > h.y - 26 && ball.y < h.y + 4 && (ball.x - face) * h.dir < BR && ball.vx * h.dir < 0) {
-      ball.x = face + h.dir * BR; ball.vx = -ball.vx * 0.6; ball.rimmed = true; ball.live = false; sfx.rim();
+      ball.x = face + h.dir * BR; ball.vx = -ball.vx * 0.6; ball.rimmed = true; ball.live = false; sfx.board(); h.wob = Math.max(h.wob, 0.4);
     }
     if (phase === "play" && ball.prevY < h.y && ball.y >= h.y && ball.vy > 0 && ball.x > h.lo + 2 && ball.x < h.hi - 2) return score(h);
   }
   if (ball.y > FLOOR - BR) {
     ball.y = FLOOR - BR; ball.vx *= 0.82;
+    if (ball.shooter && ball.rimmed && !ball.blocked && !ball.counted && phase === "play" && !demo) {
+      ball.counted = true; crowd$.ooh(); say(ball.shooter, "SO CLOSE", C.dim);
+    }
     if (ball.shooter && !ball.rimmed && !ball.blocked && !ball.counted && phase === "play") {
       ball.counted = true; say(ball.shooter, "AIRBALL", C.dim); sfx.laugh(); crowd$.aww(); hype = 0.8; quip(AIR);
     }
@@ -1227,6 +1317,12 @@ function score(h, info = {}) {
   const gold = golden;
   if (golden) { pts *= 2; golden = false; if (chaos?.kind === "golden") endChaos(); }
   p.score += pts; p.streak = lastScorer === p ? p.streak + 1 : 1; lastScorer = p; o.streak = 0;
+  duckMusic(info.dunk || pts >= 3 ? 1 : 0.6);
+  if (!demo && p.ch.name !== "BLAZE" || (!demo && p.streak >= 3)) {
+    if (p.streak === 2) later(0.9, () => quip("TWO IN A ROW"));
+    if (p.streak === 3) later(0.9, () => { quip("HE IS ON A ROLL"); crowd$.stomp(); });
+    if (p.streak >= 4) later(0.9, () => { quip("SOMEBODY STOP HIM"); crowd$.horn(1); });
+  }
   if (o.infernoT <= 0) o.fire = false;
   gainSp(p, 0.2); gainSp(o, 0.25);
   const lit = p.streak >= fireAt(p) && !p.fire;
@@ -1358,7 +1454,7 @@ function step(dt) {
     if (l && Math.random() < dt * 14) part({ x: l.x + l.fallDir * 9 * K, y: l.y - 6 * K, vx: rnd(-30, 30), vy: -rnd(30, 60), g: 200, life: 0.6, c: C.tear });
     return;
   }
-  if (phase === "countdown") { if (stateT > 1.86) { phase = "play"; sfx.fanfare(); } else return; }
+  if (phase === "countdown") { if (stateT > 1.86) { phase = "play"; sfx.fanfare(); sfx.whistle(); } else return; }
 
   const ctrls = players.map((p, i) => (demo || (i === 1 && cpu) ? cpuControl(p, other(p), dt) : humanControl(cpu ? SOLO : BINDS[i])));
   if (phase === "scored") ctrls.forEach((c, i) => { ctrls[i] = NONE; });
@@ -1379,7 +1475,9 @@ function step(dt) {
     return;
   }
   if (phase !== "play") return;
+  const secBefore = Math.ceil(clock);
   clock -= dt;
+  if (!demo && !overtime && Math.ceil(clock) !== secBefore && secBefore <= 5 && secBefore >= 1) sfx.clockTick(secBefore === 1);
   if (chaosIdx < CHAOS_AT.length && clock <= CHAOS_AT[chaosIdx] && !cutin) { chaosIdx++; startChaos(); }
   if (clock <= 0) {
     clock = 0;
@@ -1405,7 +1503,7 @@ function updateFreeze(real) {
     if (!ci.locked) {
       // the roulette slows down before it lands
       const idx = Math.floor(Math.pow(ci.t / ci.lockAt, 0.55) * 22);
-      if (idx !== ci.last) { ci.last = idx; ci.shown = (ci.shown + 1) % Object.keys(CHAOS).length; sfx.tick(); }
+      if (idx !== ci.last) { ci.last = idx; ci.shown = (ci.shown + 1) % Object.keys(CHAOS).length; sfx.tick(); sfx.roll(); }
       if (ci.t >= ci.lockAt) {
         ci.locked = true;
         if (!demo) spawnW(impactFrame, { x: W / 2, y: H / 2 });
@@ -1471,6 +1569,7 @@ function selectInput(real) {
 
 function menuInput(real) {
   if (pressed.has("KeyM")) muted = !muted;
+  if (pressed.has("KeyN")) { music.on = !music.on; try { localStorage.setItem("hoops.music", music.on ? "on" : "off"); } catch {} }
   if (pressed.has("KeyT")) setLang(lang === "ko" ? "en" : "ko");
   if (pressed.has("KeyH")) { const v = !(pinned[0] && pinned[1]); pinned = [v, v]; }
   if (screen === "select") { selectInput(real); mouse.moved = false; return; }
@@ -1538,7 +1637,7 @@ const KO = {
   "QUIT TO MENU": "메인으로", "REMATCH": "한 판 더", "MENU": "메인으로", "PAUSED": "일시정지", "DRAW": "무승부", "PASSIVE": "패시브", 
   "1 ON 1 STREETBALL MAYHEM": "1대1 길거리 농구 난장판", "6 BALLERS  6 SPECIALS  5 KINDS OF CHAOS": "선수 6명 · 필살기 6개 · 카오스 5종",
   "M SOUND OFF": "M 소리 꺼짐", "M SOUND ON": "M 소리 켜짐", "CHOOSE YOUR BALLER": "선수 선택", "WAITING FOR P1": "P1 고르는 중...",
-  "GET READY!": "준비!", "SHOOT": "슛", "STEAL": "스틸", "JUMP": "점프", "BLOCK": "블락", "LEFT: SLIDE TO MOVE, DOUBLE TAP TO DASH   RIGHT: ONE BUTTON DOES IT ALL": "왼쪽: 밀면 이동, 두 번 톡 = 대시   오른쪽: 버튼 하나로 다 됨", "DUNK": "덩크", "CATCH": "잡기", "GRAB": "줍기", "SPECIAL MOVE": "필살기",
+  "GET READY!": "준비!", "SHOOT": "슛", "STEAL": "스틸", "JUMP": "점프", "BLOCK": "블락", "LEFT THUMB: MOVE   RIGHT THUMB: BIG BUTTON DOES IT ALL, DASH NEXT TO IT": "왼손: 이동   오른손: 큰 버튼 하나로 다 됨, 옆 버튼은 대시", "DASH": "대시", "DUNK": "덩크", "SO CLOSE": "아깝다!", "TWO IN A ROW": "2연속 득점", "HE IS ON A ROLL": "손끝이 뜨겁다", "SOMEBODY STOP HIM": "누가 좀 막아봐", "CATCH": "잡기", "GRAB": "줍기", "SPECIAL MOVE": "필살기",
   "< > OR A D TO PICK   F / ENTER TO LOCK   ESC BACK": "< > / A D 고르기   F / ENTER 확정   ESC 뒤로",
   "P1: A D + F     P2: < > + ENTER     ESC BACK": "P1  A D + F    P2  < > + ENTER    ESC 뒤로",
   "MOVE": "이동", "JUMP / BLOCK": "점프 / 블락", "DASH": "대시", "SHOOT / STEAL": "슛 / 스틸",
@@ -1553,7 +1652,7 @@ const KO = {
   "A PASSIVE + A SPECIAL EACH. HOVER THE FACE UP TOP (OR H)": "선수마다 패시브 + 필살기 (위쪽 얼굴에 마우스)",
   "JUMP INTO A FLYING BALL WITH YOUR HANDS UP = CATCH IT": "점프해서 날아오는 공에 손 대면 낚아채기",
   "CHAOS EVERY 20 SECONDS. IT GETS WEIRD": "20초마다 카오스. 갈수록 이상해짐",
-  "ESC PAUSE   M SOUND   T LANGUAGE   1P ALSO WORKS WITH ARROWS": "ESC 일시정지   M 소리   T 언어   1P는 방향키도 OK",
+  "ESC PAUSE   M SOUND   N MUSIC   T LANGUAGE   1P ALSO WORKS WITH ARROWS": "ESC 일시정지   M 소리   N 음악   T 언어   1P는 방향키도 OK",
   "PIXEL HOOPS  *  1 ON 1 STREETBALL  *  NO REFS  NO RULES  *  ": "PIXEL HOOPS  *  1대1 길거리 농구  *  심판 없음 반칙 없음  *  ",
 };
 const KO_PATTERNS = [
@@ -2178,7 +2277,7 @@ function drawHowTo(p) {
   ];
   const ko = LH() > 7;
   tips.forEach(([c, t], i) => p.text(t, 160, 88 + Math.round(i * 8.4), c, { align: "center" }));
-  p.text("ESC PAUSE   M SOUND   T LANGUAGE   1P ALSO WORKS WITH ARROWS", 160, 147, C.dim, { align: "center" });
+  p.text("ESC PAUSE   M SOUND   N MUSIC   T LANGUAGE   1P ALSO WORKS WITH ARROWS", 160, 147, C.dim, { align: "center" });
   drawButtons(p, 130, 157, 60);
 }
 
@@ -2317,15 +2416,14 @@ function drawTouch(p) {
     p.disc(kx, ky, 7, hot ? C.fire[1] : me.col, 0.8); p.ring(kx, ky, 7, 1, hot ? C.fire[2] : WHITE);
   } else {
     p.tri(bx - 12, by, bx - 7, by - 4, bx - 7, by + 4, dim); p.tri(bx + 12, by, bx + 7, by - 4, bx + 7, by + 4, dim);
-    p.text("2x", bx, by + 9, faint, { align: "center" });
   }
   for (const [n, b] of Object.entries(TBTN)) {
     const on = held.has(n), ready = n === "sp" && me.sp >= 1, blink = Math.floor(worldT * 6) % 2;
-    const label = n === "act" ? smartLabel() : "SP";
+    const label = n === "act" ? smartLabel() : n === "dash" ? "DASH" : "SP";
     // the big button takes the color of what it will do: gold to score, the player's color to defend
-    const col = hot && n === "act" ? fireRim : n === "sp" ? (ready ? C.gold : dim) : label === "SHOOT" || label === "DUNK" ? C.gold : me.col;
-    if (hot && n === "act") burn(b.x, b.y, b.r, 11);
-    p.disc(b.x, b.y, b.r, on ? col : hot && n === "act" ? hex("#3a0a04") : INK, on ? 0.8 : 0.45);
+    const col = hot && n !== "sp" ? fireRim : n === "dash" ? me.col : n === "sp" ? (ready ? C.gold : dim) : label === "SHOOT" || label === "DUNK" ? C.gold : me.col;
+    if (hot && n !== "sp") burn(b.x, b.y, b.r, n === "act" ? 11 : 7);
+    p.disc(b.x, b.y, b.r, on ? col : hot && n !== "sp" ? hex("#3a0a04") : INK, on ? 0.8 : 0.45);
     p.ring(b.x, b.y, b.r, on || (ready && blink) || hot ? 2 : 1, on ? WHITE : col);
     if (n === "act") p.ring(b.x, b.y, b.r - 4, 1, lerpC(col, INK, 0.6));
     p.text(label, b.x, b.y - 2, on ? INK : n === "sp" && !ready ? dim : WHITE, { align: "center", outline: on ? undefined : INK });
@@ -2333,7 +2431,7 @@ function drawTouch(p) {
   // pause
   veil(p, 229, 3, 15, 12, INK, 0.7); frameBox(p, 229, 3, 15, 12, dim); p.rect(233, 6, 2, 6, WHITE); p.rect(238, 6, 2, 6, WHITE);
   // a reminder at the start of a game
-  if (clock > GAME_TIME - 6 && !overtime) p.text("LEFT: SLIDE TO MOVE, DOUBLE TAP TO DASH   RIGHT: ONE BUTTON DOES IT ALL", 160, 104, WHITE, { align: "center", outline: INK, a: Math.min(1, (clock - (GAME_TIME - 6)) / 1.5) });
+  if (clock > GAME_TIME - 6 && !overtime) p.text("LEFT THUMB: MOVE   RIGHT THUMB: BIG BUTTON DOES IT ALL, DASH NEXT TO IT", 160, 104, WHITE, { align: "center", outline: INK, a: Math.min(1, (clock - (GAME_TIME - 6)) / 1.5) });
 }
 
 // each top corner holds a small portrait; hovering it (or pinning it with a click / H) opens the passive and special card
