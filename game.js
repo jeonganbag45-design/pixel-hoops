@@ -135,12 +135,28 @@ if (pad) {
 // reliably on phones). The left side is a floating stick: put a thumb down anywhere, slide to run, flick to dash,
 // slide up to jump. The right side is four buttons, and a touch counts for the nearest one, so nothing is missed.
 // The controls are drawn inside the game, in its own pixels (see drawTouch).
+// one big button does whatever the moment needs (smartKey), and a small one fires the special when it's charged
 const TBTN = {
-  shoot: { x: 293, y: 151, r: 16, key: "KeyF" },
-  jump: { x: 258, y: 160, r: 12, key: "KeyW" },
-  dash: { x: 256, y: 131, r: 10, key: "KeyS" },
-  sp: { x: 290, y: 121, r: 10, key: "KeyE" },
+  act: { x: 290, y: 148, r: 21 },
+  sp: { x: 252, y: 160, r: 11, key: "KeyE" },
 };
+// the action for a press right now: shoot (or dunk) with the ball; block or catch when the ball is in the air near you;
+// otherwise reach for a steal
+function smartKey() {
+  const me = players[0], opp = players[1];
+  if (ball.owner === me) return "KeyF";
+  const threat = (opp.shooting || opp.dunk) && Math.abs(opp.x - me.x) < 60;
+  const high = !ball.owner && Math.abs(ball.x - me.x) < 30 && ball.y < me.y - 36;
+  if ((threat || high) && me.onGround) return "KeyW";
+  return "KeyF";
+}
+function smartLabel() {
+  const me = players[0], opp = players[1];
+  if (ball.owner === me) return canDunk(me) ? "DUNK" : "SHOOT";
+  const k = smartKey();
+  if (k === "KeyW") return opp.shooting || opp.dunk ? "BLOCK" : "CATCH";
+  return ball.owner === opp ? "STEAL" : "GRAB";
+}
 const touch = { stick: null, btn: new Map() };
 const gameXY = (cx, cy) => { const r = canvas.getBoundingClientRect(); return [((cx - r.left) / r.width) * W, ((cy - r.top) / r.height) * H]; };
 const touchPlay = () => screen === "game" && phase !== "done";
@@ -161,10 +177,11 @@ addEventListener("touchstart", (e) => {
       if (!touch.stick) touch.stick = { id: t.identifier, ox: gx, oy: gy, sx: gx, sy: gy, x: gx, y: gy, t0: performance.now(), dir: 0, flicked: false, jumped: false };
       continue;
     }
-    let best = "shoot", bd = Infinity;
+    let best = "act", bd = Infinity;
     for (const [n, b] of Object.entries(TBTN)) { const d = Math.hypot(gx - b.x, gy - b.y) / b.r; if (d < bd) { bd = d; best = n; } }
-    touch.btn.set(t.identifier, best);
-    pressed.add(TBTN[best].key); keys.add(TBTN[best].key);
+    const key = best === "act" ? smartKey() : TBTN[best].key;
+    touch.btn.set(t.identifier, { name: best, key });
+    pressed.add(key); keys.add(key);
   }
 }, { passive: false });
 addEventListener("touchmove", (e) => {
@@ -188,7 +205,7 @@ function touchEnd(e) {
   for (const t of e.changedTouches) {
     if (touch.stick && t.identifier === touch.stick.id) { touch.stick = null; stickKeys(); }
     const b = touch.btn.get(t.identifier);
-    if (b) { touch.btn.delete(t.identifier); if (![...touch.btn.values()].includes(b)) keys.delete(TBTN[b].key); }
+    if (b) { touch.btn.delete(t.identifier); if (![...touch.btn.values()].some((o) => o.key === b.key)) keys.delete(b.key); }
   }
 }
 addEventListener("touchend", touchEnd);
@@ -1495,7 +1512,7 @@ const KO = {
   "QUIT TO MENU": "메인으로", "REMATCH": "한 판 더", "MENU": "메인으로", "PAUSED": "일시정지", "DRAW": "무승부", "PASSIVE": "패시브", 
   "1 ON 1 STREETBALL MAYHEM": "1대1 길거리 농구 난장판", "6 BALLERS  6 SPECIALS  5 KINDS OF CHAOS": "선수 6명 · 필살기 6개 · 카오스 5종",
   "M SOUND OFF": "M 소리 꺼짐", "M SOUND ON": "M 소리 켜짐", "CHOOSE YOUR BALLER": "선수 선택", "WAITING FOR P1": "P1 고르는 중...",
-  "GET READY!": "준비!", "SHOOT": "슛", "STEAL": "스틸", "JUMP": "점프", "BLOCK": "블락", "SLIDE: MOVE   FLICK: DASH   UP: JUMP": "밀기: 이동   튕기기: 대시   위로: 점프", "SPECIAL MOVE": "필살기",
+  "GET READY!": "준비!", "SHOOT": "슛", "STEAL": "스틸", "JUMP": "점프", "BLOCK": "블락", "LEFT: SLIDE TO MOVE, FLICK TO DASH   RIGHT: ONE BUTTON DOES IT ALL": "왼쪽: 밀면 이동, 튕기면 대시   오른쪽: 버튼 하나로 다 됨", "DUNK": "덩크", "CATCH": "잡기", "GRAB": "줍기", "SPECIAL MOVE": "필살기",
   "< > OR A D TO PICK   F / ENTER TO LOCK   ESC BACK": "< > / A D 고르기   F / ENTER 확정   ESC 뒤로",
   "P1: A D + F     P2: < > + ENTER     ESC BACK": "P1  A D + F    P2  < > + ENTER    ESC 뒤로",
   "MOVE": "이동", "JUMP / BLOCK": "점프 / 블락", "DASH": "대시", "SHOOT / STEAL": "슛 / 스틸",
@@ -2253,7 +2270,7 @@ function drawChaosActive(p) {
 // and say what they will do right now (shoot or steal, jump or block)
 function drawTouch(p) {
   if (!isTouch || screen !== "game") return;
-  const me = players[0], opp = players[1], held = new Set(touch.btn.values()), s = touch.stick;
+  const me = players[0], held = new Set([...touch.btn.values()].map((b) => b.name)), s = touch.stick;
   const dim = lerpC(WHITE, INK, 0.45), faint = lerpC(WHITE, INK, 0.7);
   const bx = Math.round(s ? s.ox : 42), by = Math.round(s ? s.oy : 150);
   p.disc(bx, by, 15, INK, 0.3); p.ring(bx, by, 15, 1, s ? dim : faint);
@@ -2266,16 +2283,18 @@ function drawTouch(p) {
   }
   for (const [n, b] of Object.entries(TBTN)) {
     const on = held.has(n), ready = n === "sp" && me.sp >= 1, blink = Math.floor(worldT * 6) % 2;
-    const col = n === "shoot" ? C.gold : n === "sp" ? (ready ? C.gold : dim) : n === "dash" ? me.col : WHITE;
-    p.disc(b.x, b.y, b.r, on ? col : INK, on ? 0.8 : 0.4);
+    const label = n === "act" ? smartLabel() : "SP";
+    // the big button takes the color of what it will do: gold to score, the player's color to defend
+    const col = n === "sp" ? (ready ? C.gold : dim) : label === "SHOOT" || label === "DUNK" ? C.gold : me.col;
+    p.disc(b.x, b.y, b.r, on ? col : INK, on ? 0.8 : 0.45);
     p.ring(b.x, b.y, b.r, on || (ready && blink) ? 2 : 1, on ? WHITE : col);
-    const label = n === "shoot" ? (ball.owner === opp ? "STEAL" : "SHOOT") : n === "jump" ? (opp.shooting || opp.dunk ? "BLOCK" : "JUMP") : n === "dash" ? "DASH" : "SP";
-    p.text(label, b.x, b.y - 2, on ? INK : WHITE, { align: "center", outline: on ? undefined : INK });
+    if (n === "act") p.ring(b.x, b.y, b.r - 4, 1, lerpC(col, INK, 0.6));
+    p.text(label, b.x, b.y - 2, on ? INK : n === "sp" && !ready ? dim : WHITE, { align: "center", outline: on ? undefined : INK });
   }
   // pause
   veil(p, 229, 3, 15, 12, INK, 0.7); frameBox(p, 229, 3, 15, 12, dim); p.rect(233, 6, 2, 6, WHITE); p.rect(238, 6, 2, 6, WHITE);
   // a reminder at the start of a game
-  if (clock > GAME_TIME - 6 && !overtime) p.text("SLIDE: MOVE   FLICK: DASH   UP: JUMP", 70, 112, WHITE, { align: "center", outline: INK, a: Math.min(1, (clock - (GAME_TIME - 6)) / 1.5) });
+  if (clock > GAME_TIME - 6 && !overtime) p.text("LEFT: SLIDE TO MOVE, FLICK TO DASH   RIGHT: ONE BUTTON DOES IT ALL", 160, 104, WHITE, { align: "center", outline: INK, a: Math.min(1, (clock - (GAME_TIME - 6)) / 1.5) });
 }
 
 // each top corner holds a small portrait; hovering it (or pinning it with a click / H) opens the passive and special card
