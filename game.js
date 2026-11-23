@@ -239,6 +239,11 @@ function touchFrame(dt) {
 // help for thumbs: a human on a touch screen gets a little more reach on steals, blocks and dunks
 const assist = (p) => isTouch && !demo && p.tag !== "CPU";
 addEventListener("contextmenu", (e) => e.preventDefault());
+document.addEventListener("visibilitychange", () => {
+  if (!ac) return;
+  if (document.hidden) ac.suspend().catch(() => {});
+  else ac.resume().catch(() => {});
+});
 const mouse = { x: -1, y: -1, moved: false };
 const toGame = (e) => { const r = canvas.getBoundingClientRect(); return [((e.clientX - r.left) / r.width) * W, ((e.clientY - r.top) / r.height) * H]; };
 const inside = (b) => mouse.x >= b.x && mouse.x < b.x + b.w && mouse.y >= b.y && mouse.y < b.y + b.h;
@@ -544,7 +549,7 @@ const seed = () => (Math.random() * 1e6) | 0;
 const spawnW = (mod, o) => { const f = createFx(mod, { seed: seed(), ...o }); fxWorld.push(f); return f; };
 const spawnH = (mod, o) => { if (!demo) fxHud.push(createFx(mod, { seed: seed(), ...o })); };
 const later = (t, fn) => timers.push({ t, fn });
-function part(o) { parts.push({ vx: 0, vy: 0, g: 0, s: 1, life: 0.5, floor: true, ...o, max: o.life ?? 0.5 }); }
+function part(o) { if (parts.length > 450) return; parts.push({ vx: 0, vy: 0, g: 0, s: 1, life: 0.5, floor: true, ...o, max: o.life ?? 0.5 }); }
 function dust(x, n, dir = 0, y = FLOOR) {
   for (let i = 0; i < n; i++) part({ x: x + rnd(-3, 3), y: y - 1, vx: dir * rnd(10, 50) + rnd(-25, 25), vy: -rnd(8, 40), g: 80, life: rnd(0.25, 0.55), c: C.dust, s: pick([1, 1, 2]) });
 }
@@ -1790,7 +1795,20 @@ const ROOF = 22, STANDS = 114, RIBBON = 118, LAMPS = [44, 92, 228, 276];
 // a smooth translucent rectangle (the painter's own alpha is an ordered dither, which reads as grain on big areas)
 function veil(p, x, y, w, h, c, a) {
   const x0 = Math.max(0, Math.round(x)), y0 = Math.max(0, Math.round(y)), x1 = Math.min(W, Math.round(x + w)), y1 = Math.min(H, Math.round(y + h));
-  for (let j = y0; j < y1; j++) for (let i = x0; i < x1; i++) p.blendPx(i, j, c, a);
+  const B = p.C;
+  if (!B || p.ox || p.oy || p.w !== W) { for (let j = y0; j < y1; j++) for (let i = x0; i < x1; i++) p.blendPx(i, j, c, a); return; }
+  a = Math.max(0, Math.min(1, a * (p.fade ?? 1)));
+  if (a <= 0.004) return;
+  const cr = c & 255, cg = (c >>> 8) & 255, cb = (c >>> 16) & 255, over = (((a * 255) & 255) << 24 | (cb << 16) | (cg << 8) | cr) >>> 0;
+  for (let j = y0; j < y1; j++) {
+    let i = j * W + x0;
+    for (let x2 = x0; x2 < x1; x2++, i++) {
+      const d = B[i];
+      if (!d) { B[i] = over; continue; }                                   // nothing under it: just the tint
+      const da = (d >>> 24) / 255, oa = a + da * (1 - a), k = a / oa, q = 1 - k;
+      B[i] = ((((oa * 255) & 255) << 24) | ((((cb * k + ((d >>> 16) & 255) * q)) & 255) << 16) | ((((cg * k + ((d >>> 8) & 255) * q)) & 255) << 8) | ((cr * k + (d & 255) * q) & 255)) >>> 0;
+    }
+  }
 }
 const lerpC = (a, b, k) => {
   const ch = (s) => Math.round(((a >>> s) & 255) * (1 - k) + ((b >>> s) & 255) * k);
@@ -2175,11 +2193,26 @@ function drawBall(p) {
   if (gold) { p.glow(x, y, 12, C.gold, 0.6); if (Math.random() < 0.5) part({ x: x + rnd(-4, 4), y: y + rnd(-4, 4), vy: -14, life: 0.35, c: WHITE, floor: false }); }
 }
 
+let crowdBake = { key: "", color: null, light: null };
 function drawWorld() {
-  world.color.set(courtColor); world.light.set(courtLight);
-  let p = painterFor(world); p.place(0, 0);
-  drawBackdrop(p);
-  drawCrowd(p);
+  const calm = hype <= 0.3 && chaos?.kind !== "moon" && phase !== "scored" && players.length;
+  let p;
+  if (calm) {
+    const key = players.map((q) => q.col).join("|");
+    if (crowdBake.key !== key) {
+      world.color.set(courtColor); world.light.set(courtLight);
+      p = painterFor(world); p.place(0, 0); drawCrowd(p);
+      crowdBake = { key, color: world.color.slice(), light: world.light.slice() };
+    }
+    world.color.set(crowdBake.color); world.light.set(crowdBake.light);
+    p = painterFor(world); p.place(0, 0);
+    drawBackdrop(p);
+  } else {
+    world.color.set(courtColor); world.light.set(courtLight);
+    p = painterFor(world); p.place(0, 0);
+    drawBackdrop(p);
+    drawCrowd(p);
+  }
   drawHoopBack(p);
   drawFxList(fxWorld, world, "back");
   p = painterFor(world); p.place(0, 0);
@@ -2569,6 +2602,9 @@ window.hoops = {
 let last = performance.now(), hold = false;
 function loop(now) {
   if (hold) { last = now; requestAnimationFrame(loop); return; }   // debug: the test drives the frames
+  // skip a display frame when it comes sooner than the cap: 60 fps for play, 30 for menus and pauses
+  const cap = screen === "game" && !document.hidden ? 60 : 30;
+  if (now - last < 1000 / cap - 3) { requestAnimationFrame(loop); return; }
   const real = Math.min(1 / 30, (now - last) / 1000);
   last = now;
   let dt = real;
