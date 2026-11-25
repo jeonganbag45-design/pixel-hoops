@@ -1136,7 +1136,7 @@ function dashContact(p) {
   if (p.dashRolled || ball.owner !== p || d.fallen > 0 || d.frozen > 0 || !d.onGround || Math.abs(d.x - p.x) > 14) return;
   p.dashRolled = true;
   if (d.ch.name !== "TANK" && committed(d, p.dashDir)) {
-    d.fallen = 1.4; d.fallDir = -p.dashDir; d.vy = -70; d.onGround = false; d.flash = 0.1;
+    d.fallen = 0.6; d.ankled = true; d.fallDir = -p.dashDir; d.vy = -50; d.onGround = false; d.flash = 0.1;
     say(p, "CROSSOVER", C.gold); gainSp(p, 0.15); link(p, "ANKLES");
     hitFx("ankle", d.x, FLOOR, p.col, p.dashDir); pop(d, "ANKLES!", C.gold);
     impact({ stop: 0.12, slow: 0.5, zoom: 1.14, at: [d.x, d.y - 12 * K], shake: 4, dx: p.dashDir });
@@ -1320,7 +1320,12 @@ function updatePlayer(p, c, dt) {
     c = NONE; if (p.onGround) p.vx = 0;
     if ((p.frozen -= dt) <= 0 && p.frozenKind === "ice") { spawnW(iceShatter, { x: p.x - 10, y: p.y - 4 * K }); burst(p.x, p.y - 14 * K, 14, C.glass, 70, 0.6); sfx.glass(); }
     if (p.frozenKind === "time") { p.vx = p.vy = 0; return; }
-  } else if (p.fallen > 0) { p.fallen -= dt; c = NONE; if (p.onGround) p.vx *= 0.85; }
+  } else if (p.fallen > 0) {
+    // broken ankles: every press gets you up a bit sooner (the CPU scrambles up on his own)
+    if (p.ankled && (c.shoot || c.jump || c.dash || (p.tag === "CPU" && Math.random() < dt * 4))) p.fallen -= 0.12;
+    p.fallen -= dt; c = NONE; if (p.onGround) p.vx *= 0.85;
+    if (p.fallen <= 0) p.ankled = false;
+  }
   else if (p.stun > 0) { p.stun -= dt; c = NONE; }
   else if (p.granny > 0) c = NONE;
   if (c.special) trySpecial(p);
@@ -1573,24 +1578,20 @@ function endGame() {
 const CHAOS = {
   moon: { name: "MOON GRAVITY", sub: "EVERYONE FLOATS", col: hex("#b0a8ff"), dur: 10,
     start: () => { gravMul = 0.42; chaosFx.push(spawnW(shootingStars, { x: W / 2, y: H })); }, end: () => { gravMul = 1; } },
-  banana: { name: "BANANA RAIN", sub: "WATCH YOUR STEP", col: hex("#ffe03c"), dur: 3,
-    start: () => { for (let i = 0; i < 8; i++) bananas.push({ x: bananaX(i), y: -rnd(10, 160), vy: 0, landed: false, life: 18, spin: rnd(0, 6) }); } },
   bighead: { name: "BIG HEAD MODE", sub: "HUGE BRAIN ENERGY", col: hex("#ff86e6"), dur: 12,
     start: () => { for (const p of players) spawnW(poof, { x: p.x, y: p.y - 14 * K }); } },
   sniper: { name: "SNIPER ROUND", sub: "ONLY 3S COUNT", col: hex("#7cff9a"), dur: 10, start: () => {} },
   golden: { name: "GOLDEN BALL", sub: "NEXT BASKET X2", col: hex("#ffc23c"), dur: 0,
     start: () => { golden = true; chaosFx.push(spawnW(godRays, { x: W / 2, y: FLOOR + 20 })); }, end: () => { golden = false; } },
-  storm: { name: "LIGHTNING STORM", sub: "DONT STAND STILL", col: hex("#8cf0ff"), dur: 9,
-    start: () => { chaosFx.push(spawnW(storm, { x: W / 2, y: FLOOR + 20 })); chaos.next = 0.6; } },
 };
 let chaosBag = [];
-// chaos leans toward the side that is behind: someone up by 3 or more draws the storm, the bananas and the sniper round
-// more often, the lightning and the bananas find him, and the other side gets a shot of SP
+// chaos leans toward the side that is behind: someone up by 3 or more draws the sniper round more often (a long shot back
+// into it), and the other side gets a shot of SP
 const leaderNow = () => { const [a, b] = players; return demo || Math.abs(a.score - b.score) < 3 ? null : a.score > b.score ? a : b; };
 const bananaX = (i) => { const L = chaos?.leader; if (!L || i >= 6) return rnd(44, 276); return hoopOf(L).cx < 160 ? rnd(44, 160) : rnd(160, 276); };
 function startChaos(kind) {
   if (!kind) {
-    if (leaderNow() && Math.random() < 0.6) kind = pick(["storm", "banana", "sniper"]);
+    if (leaderNow() && Math.random() < 0.6) kind = "sniper";
     else { if (!chaosBag.length) chaosBag = Object.keys(CHAOS).sort(() => Math.random() - 0.5); kind = chaosBag.pop(); }
   }
   if (demo) { beginChaos(kind); return; }
@@ -2062,7 +2063,7 @@ const KO = {
   "GET AWAY!": "피해!", "JUMP!": "점프!", "DASH!": "대시!", "FIZZLED": "불발", "READ YOU": "다 읽혔어",
   "HE BACKS OFF YOUR DRIVE. SHOOT OVER HIM": "돌파만 하니 물러선다. 이번엔 쏴라", "HE CROWDS YOUR SHOT. FAKE IT, THEN GO": "슛만 쏘니 붙는다. 페이크 후 돌파",
   "STYLE": "스타일 점수", "BEST COMBO": "최고 콤보", "SNATCH": "가로채기", "ANKLES": "발목", "3PT": "3점", "BUCKET": "득점",
-  "6 BALLERS  4 COURTS  6 KINDS OF CHAOS": "선수 6명 · 코트 4곳 · 카오스 6종",
+  "6 BALLERS  4 COURTS  4 KINDS OF CHAOS": "선수 6명 · 코트 4곳 · 카오스 4종",
   "PIXEL HOOPS  *  1 ON 1 STREETBALL  *  NO REFS  NO RULES  *  ": "PIXEL HOOPS  *  1대1 길거리 농구  *  심판 없음 반칙 없음  *  ",
 };
 const KO_PATTERNS = [
@@ -3114,7 +3115,7 @@ function drawHud() {
     p.text("PIXEL HOOPS", 160, 30, C.gold, { font: "big", scale: 3, align: "center", outline: INK, shadow: hex("#7a3b5c") });
     p.text("1 ON 1 STREETBALL MAYHEM", 160, 58, WHITE, { align: "center", outline: INK });
     drawButtons(p, 110, 78, 100);
-    p.text("6 BALLERS  4 COURTS  6 KINDS OF CHAOS", 160, 160, C.line, { align: "center", outline: INK });
+    p.text("6 BALLERS  4 COURTS  4 KINDS OF CHAOS", 160, 160, C.line, { align: "center", outline: INK });
     p.text("EFFECTS BY PIXELFX", 6, 172, C.dim);
     p.text(muted ? "M SOUND OFF" : "M SOUND ON", 314, 172, C.dim, { align: "right" });
     return;
