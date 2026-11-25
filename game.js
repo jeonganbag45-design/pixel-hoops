@@ -914,8 +914,16 @@ function stealOpen(p, opp) {
   if (ball.owner !== opp || opp.shooting || opp.dunk || opp.gather > 0 || opp.fakeT > 0 || !opp.onGround) return false;
   const reach = Math.abs(opp.x - p.x) <= (p.fire ? 30 : 24) + (assist(p) ? 6 : 0) && Math.abs(opp.y - p.y) <= 24;
   const side = opp.facing === Math.sign(p.x - opp.x) || p.ch.name === "SHADE";
-  const low = Math.abs(Math.sin(worldT * (opp.dashT > 0 ? 16 : 9))) > (assist(p) ? 0.78 : 0.86) - (p.ch.def - 1) * 0.25;   // about a third of each bounce
-  return reach && side && low;
+  return reach && side && stealPhase(p, opp).open;
+}
+// the steal rhythm: slow enough to read and react to. Every cycle the handler's ball hangs loose for a beat
+// (about 0.3s, a little longer on a phone and for good defenders), and the cue warns you just before it does.
+function stealPhase(p, opp) {
+  const cyc = opp.dashT > 0 ? 0.65 : 0.95, t = (worldT + opp.i * 0.37) % cyc;
+  const win = Math.min(cyc * 0.45, (assist(p) ? 0.36 : 0.28) + (p.ch.def - 1) * 0.25);
+  const open = t >= cyc - win || t < 0.07;                       // a short grace after it closes, for your thumb
+  const warn = !open && t >= cyc - win - 0.4 ? (t - (cyc - win - 0.4)) / 0.4 : 0;   // 0..1 as it gets close
+  return { open, warn };
 }
 // how much the defender bothers a shot: 0 open, 1 a hand in the face
 function contest(p, d) {
@@ -2458,6 +2466,10 @@ function drawCues(p) {
         // over your own head, where GO! shows on offense: one place to look for "now"
         p.text("STEAL!", Math.round(me.x), Math.round(me.y - 62) - (blink ? 1 : 0), C.gold, { font: "big", align: "center", outline: INK });
         p.line(Math.round(me.x), Math.round(me.y - 52), bx, by - BR - 2, C.gold);
+      } else if (inReach(me, o) && stealPhase(me, o).warn > 0) {
+        // get ready: a gold ring closes in on the ball, and it lands when the window opens
+        const w = stealPhase(me, o).warn;
+        p.ring(bx, by, Math.round(BR + 3 + (1 - w) * 12), 1, w > 0.6 ? C.gold : WHITE);
       } else if (inReach(me, o)) {
         for (let i = 0; i < 6; i++) { const a = worldT * 4 + (i / 6) * Math.PI * 2; p.px(Math.round(bx + Math.cos(a) * (BR + 4)), Math.round(by + Math.sin(a) * (BR + 4)), WHITE); }
       }
