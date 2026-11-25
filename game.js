@@ -267,6 +267,8 @@ canvas.addEventListener("pointerdown", (e) => {
   if (screen === "settings") { settingsTap(); return; }
   const face = infoBoxes.find(inside);
   if (face) { pinned[face.i] = !pinned[face.i]; sfx.click(); return; }
+  const chip = chips.find(inside);
+  if (chip) { chip.act(); return; }
   const card = cards.find(inside);
   if (card) { selectPick(card.i); return; }
   const b = buttons.find(inside);
@@ -455,7 +457,7 @@ function playStep(s, t) {
 function updateMusic() {
   if (!ac || !music.bus) return;
   const mode = !music.on || muted ? "silent"
-    : screen === "game" ? (overtime ? "ot" : clock <= 10 && phase !== "countdown" ? "final" : "game")
+    : screen === "game" ? (overtime ? "ot" : (rule === "to11" ? players.some((q) => q.score >= 9) : clock <= 10) && phase !== "countdown" ? "final" : "game")
     : screen === "paused" ? "paused" : screen === "over" ? "silent" : "menu";
   music.mode = mode;
   music.bpm = { menu: 88, paused: 88, game: 94 + hype * 6, final: 112, ot: 104, silent: 94 }[mode];
@@ -536,6 +538,7 @@ const sfx = {
   cutin: () => { noise(0.2, 0.1, 5000); beep(392, 0.1, "square", 0.05, 0); beep(784, 0.25, "square", 0.05, 0, 0.08); },
   freeze: () => { for (let i = 0; i < 5; i++) beep(2000 - i * 250, 0.08, "triangle", 0.05, 0, i * 0.04); },
   buzzer: () => beep(140, 0.7, "sawtooth", 0.07),
+  warn: () => { beep(330, 0.09, "square", 0.05); beep(247, 0.14, "square", 0.05, 0, 0.1); },
   cue: (go) => { beep(go ? 1175 : 1568, 0.05, "triangle", 0.06); beep(go ? 1568 : 2093, 0.07, "triangle", 0.05, 0, 0.05); },
   catch: () => { beep(330, 0.04, "square", 0.05); beep(660, 0.06, "square", 0.04, 0, 0.03); },
   passive: () => { beep(1320, 0.05, "triangle", 0.04); beep(1760, 0.09, "triangle", 0.035, 0, 0.05); },
@@ -576,7 +579,10 @@ let screen = "menu", menuSel = 0, buttons = [], cards = [], demo = true, cpu = t
 let phase = "play", stateT = 0, worldT = 0, clock = GAME_TIME, overtime = false, chaosIdx = 0;
 let players = [], ball = null, lastScorer = null, bananas = [], chosen = [0, 1];
 let gravMul = 1, golden = false, hype = 0, chaos = null, chaosIntro = null, chaosFx = [], strikes = [], cutin = null;
-let banner = null, caption = null, flash = null, sel = null, pinned = [false, false], infoBoxes = [];
+let banner = null, caption = null, flash = null, sel = null, pinned = [false, false], infoBoxes = [], chips = [];
+// the match: which court, which rules, the rooftop wind, time played, and what the CPU has learned about you
+let autoP1 = false;   // debug: the CPU plays P1 too (for tests)
+let court = "arena", rule = "classic", wind = 0, windTo = 0, windT = 0, elapsed = 0, read = null;
 
 const ANKLE = ["CALL AN AMBULANCE", "HIS ANKLES ARE GONE", "HE NEEDS A DOCTOR", "PLEASE STAND UP", "FLOOR LOOKED COMFY"];
 const POSTER = ["PUT IT ON A POSTER", "HE WAS IN THE PHOTO", "FRAME THAT ONE", "DISRESPECTFUL"];
@@ -592,6 +598,7 @@ function makePlayer(i, ci) {
     shooting: false, shootT: 0, stun: 0, swipe: 0, cd: 0, whiff: 0, dashT: 0, dashCd: 0, dunkWin: 0, dashDir: 1, dashRolled: false,
     fallen: 0, fallDir: 1, hang: 0, dunk: null, squash: 0, flash: 0, celebrate: 0, ghosts: [], ghostT: 0,
     frozen: 0, frozenKind: "ice", infernoT: 0, granny: 0, sp: 0.3, ptag: null, stam: 1, dashGap: 0, gather: 0, fakeT: 0, landT: 0, bitDone: false,
+    charge: null, quakeT: 0, combo: { n: 0, t: 0, names: [] }, stylePts: 0, bestCombo: 0, comboShow: null,
     msg: null, score: 0, streak: 0, fire: false, winner: false, loser: false,
     ai: { t: 0, tx: 0, plan: null, releaseAt: 0.33, jumpIn: 0, decided: false, spT: rnd(0.5, 2) },
   };
@@ -601,6 +608,12 @@ function newGame(kind, force = null) {
   tut = kind === "tutorial" ? { step: 0, wait: 0, done: 0, moved: 0, idle: 0, shotIn: 1.2 } : null;
   if (tut) kind = "cpu";
   demo = kind === "demo"; cpu = kind !== "pvp";
+  // the court and the rules: what was picked on the select screen (the menu demo and practice keep it simple)
+  rule = demo || tut ? "classic" : RULES.includes(settings.rule) ? settings.rule : "classic";
+  const want = tut ? "arena" : !demo && COURTS.includes(settings.court) ? settings.court : pick(COURTS);
+  if (want !== court || !courtColor) { court = want; buildCourt(); }
+  wind = windTo = windT = elapsed = 0;
+  read = { drive: 0, shot: 0, gathers: 0, bit: 0, reach: 0, style: "" };
   const picks = force ?? (demo ? [Math.floor(Math.random() * CHARS.length), Math.floor(Math.random() * CHARS.length)] : chosen);
   players = [];
   players.push(makePlayer(0, picks[0])); players.push(makePlayer(1, picks[1]));
@@ -615,6 +628,7 @@ function newGame(kind, force = null) {
   if (tut) { tutSetup(); return; }
   phase = "countdown";
   spawnH(countdown, { x: W / 2, y: 80 });
+  caption = { text: COURT_INFO[court].line, t: 3.4 };
 }
 function startGame(kind) { newGame(kind); setScreen("game"); }
 function toMenu() { newGame("demo"); setScreen("menu"); }
@@ -629,6 +643,7 @@ function setPossession(i) {
   off.x = i === 0 ? 90 : 230; def.x = i === 0 ? 150 : 170;
   for (const p of players) Object.assign(p, { y: FLOOR, vx: 0, vy: 0, onGround: true, shooting: false, gather: 0, fakeT: 0, landT: 0, stun: 0, swipe: 0, whiff: 0, dashT: 0, fallen: 0, hang: 0, dunk: null, celebrate: 0, frozen: 0, granny: 0 });
   off.facing = i === 0 ? 1 : -1; def.facing = -off.facing;
+  for (const p of players) if (p.combo) p.combo.t = 0;                      // a combo lives inside one possession
   Object.assign(ball, { owner: off, live: false, shooter: null, rimmed: false, blocked: false, vx: 0, vy: 0, trail: [], homing: null });
   for (const h of HOOPS) h.broken = false;
 }
@@ -806,6 +821,7 @@ function drawPassiveFx(p, pl) {
 // passives
 const fireAt = (p) => (p.ch.name === "BLAZE" ? 2 : Infinity);   // awakening is BLAZE's thing: nobody else catches fire
 const perfectZone = (p) => 32 * p.ch.jmp * (p.ch.name === "FROST" ? 1.6 : 1);   // |vy| at release that counts as perfect
+const windA = () => (court === "roof" ? wind * 40 : 0);
 const busy = (p) => p.fallen > 0 || p.hang > 0 || p.dunk || p.frozen > 0 || p.stun > 0;
 function dropBall(p, vx = 0, vy = -120) {
   if (ball.owner !== p) return;
@@ -835,20 +851,30 @@ function cpuControl(me, opp, dt) {
   const apex = (SHOT_JUMP * me.ch.jmp) / (GRAV * gravMul);
   if (me.shooting && ball.owner === me) { c.shootHeld = me.shootT < ai.releaseAt; return c; }
   if (me.gather > 0 && ball.owner === me) { c.shootHeld = !ai.faking; return c; }   // holding through the gather, or letting go: a fake
+  const P = PERSONA[me.ch.name];
+  // a special coming at him: read it and get out of the way (how often depends on the level)
+  const how = opp.charge && dodgeHow(opp);
+  if (how && ai.dodge) {
+    const left = opp.charge.t;
+    if (how === "GET AWAY!") { if (me.x > opp.x) c.right = true; else c.left = true; if (me.dashCd <= 0 && me.onGround) c.dash = true; return c; }
+    if (how === "DASH!" && left < 0.14 && me.dashCd <= 0 && me.onGround) { c.dash = true; if (hoopOf(me).cx > me.x) c.right = true; else c.left = true; return c; }
+    if (how === "JUMP!" && left < 0.12 && me.onGround) { c.jump = true; return c; }
+  }
+  if (ai.dodge && me.onGround && teeth.some((t) => t.from === opp && (me.x - t.x) * Math.sign(t.vx) > 0 && Math.abs(me.x - t.x) < 30)) c.jump = true;
   if (ai.jumpIn > 0 && (ai.jumpIn -= dt) <= 0) c.jump = true;
   if (me.sp >= 1 && ai.spT <= 0 && wantsSpecial(me, opp)) { c.special = true; ai.spT = rnd(...lvl(me).special); return c; }
 
   if (ball.owner === me) {
     const h = hoopOf(me), front = courtSide(me), dist = Math.abs(me.x - h.cx), toward = Math.sign(h.cx - me.x) || 1;
     if (!ai.plan) {
-      const r = Math.random(), t3 = 0.2 + (me.ch.three - 1) * 0.6;
-      ai.plan = r < t3 ? { kind: "three", at: rnd(100, 122) } : r < 0.62 ? { kind: "drive" } : { kind: "mid", at: rnd(36, 78) };
+      const r = Math.random(), t3 = P.three + (me.ch.three - 1) * 0.3, dr = t3 + P.drive;
+      ai.plan = r < t3 ? { kind: "three", at: rnd(100, 122) } : r < dr ? { kind: "drive" } : { kind: "mid", at: rnd(36, 78) };
     }
     const ahead = (opp.x - me.x) * toward > 0 && Math.abs(opp.x - me.x) < 26 && opp.fallen <= 0;
     const L = lvl(me), beat = committed(opp, toward) && Math.abs(opp.x - me.x) < 40;
     // a covered shot is sometimes a fake first; a defender who bit gets attacked at once
     const shoot = () => {
-      if (ahead && !beat && opp.onGround && me.fakeT <= 0 && Math.random() < L.fake) { c.shoot = c.shootHeld = true; ai.faking = true; return; }
+      if (ahead && !beat && opp.onGround && me.fakeT <= 0 && Math.random() < L.fake * P.fake * fakeRead(me)) { c.shoot = c.shootHeld = true; ai.faking = true; return; }
       ai.faking = false; c.shoot = c.shootHeld = true; ai.releaseAt = apex + gauss() * L.aim; ai.plan = null;
     };
     if (beat && me.onGround && me.dashT <= 0) {
@@ -857,7 +883,7 @@ function cpuControl(me, opp, dt) {
     }
     // a jab step away, then the crossover back at him
     if (ai.jabT > 0) { ai.jabT -= dt; if (toward > 0) c.left = true; else c.right = true; if (ai.jabT <= 0 && me.dashCd <= 0) { c.dash = true; if (toward > 0) c.right = true; else c.left = true; } return c; }
-    if (ahead && me.dashCd <= 0 && me.onGround && Math.random() < dt * L.jab) { ai.jabT = rnd(0.12, 0.28); return c; }
+    if (ahead && me.dashCd <= 0 && me.onGround && Math.random() < dt * L.jab * P.jab * (me.i === 1 && read?.reach >= 3 ? 1.6 : 1)) { ai.jabT = rnd(0.12, 0.28); return c; }
     if (ai.plan.kind === "drive") {
       go(h.cx);
       if (canDunk(me) && Math.random() < 0.6) { c.shoot = true; ai.plan = null; }
@@ -869,19 +895,19 @@ function cpuControl(me, opp, dt) {
     } else if (me.onGround && me.dashT <= 0) shoot();
   } else if (ball.owner === opp) {
     const h = hoopOf(opp), dir = Math.sign(h.cx - opp.x) || 1;
-    if (ai.t <= 0) { ai.t = rnd(...lvl(me).react); ai.tx = opp.x + dir * rnd(16, 23); }
+    if (ai.t <= 0) { ai.t = rnd(...lvl(me).react); ai.tx = opp.x + dir * (rnd(16, 23) + P.gap + readGap(me)); }
     go(ai.tx, 2);
     const L = lvl(me), near = Math.abs(opp.x - me.x) < (opp.dunk ? 46 : 32);
     // the ball goes up: a shot or a fake? the easier the CPU, the more often he jumps at it right away
-    if (opp.gather > 0 && !ai.sawGather) { ai.sawGather = true; if (near && me.onGround && Math.random() < L.bite) ai.jumpIn = rnd(0.01, 0.06); }
+    if (opp.gather > 0 && !ai.sawGather) { ai.sawGather = true; if (near && me.onGround && Math.random() < L.bite * P.bite) ai.jumpIn = rnd(0.01, 0.06); }
     if ((opp.shooting || opp.dunk) && !ai.decided) {
       ai.decided = true;
-      if (near && me.onGround && ai.jumpIn <= 0 && Math.random() < L.block) ai.jumpIn = opp.dunk ? rnd(0.08, 0.22) : rnd(0.02, 0.12);
+      if (near && me.onGround && ai.jumpIn <= 0 && Math.random() < L.block * P.block + (me.i === 1 && read?.style === "press" ? 0.2 : 0)) ai.jumpIn = opp.dunk ? rnd(0.08, 0.22) : rnd(0.02, 0.12);
     }
     if (opp.gather <= 0 && opp.fakeT <= 0) ai.sawGather = false;
     // steals: take the open window, and now and then reach in when it isn't
-    if (me.cd <= 0 && stealOpen(me, opp) && Math.random() < L.steal) c.shoot = true;
-    else if (me.cd <= 0 && Math.abs(opp.x - me.x) < 24 && Math.random() < dt * L.reach) c.shoot = true;
+    if (me.cd <= 0 && stealOpen(me, opp) && Math.random() < L.steal * P.steal) c.shoot = true;
+    else if (me.cd <= 0 && Math.abs(opp.x - me.x) < 24 && Math.random() < dt * L.reach * P.reach) c.shoot = true;
     if (Math.abs(ai.tx - me.x) > 45 && me.dashCd <= 0 && Math.random() < dt * 3) c.dash = true;
   } else {
     go(ball.x, 2);
@@ -895,7 +921,6 @@ function cpuControl(me, opp, dt) {
     const ahead = (b.x - me.x) * Math.sign(me.vx || (c.right ? 1 : c.left ? -1 : 0)) > 0;
     if (ahead && Math.abs(b.x - me.x) < 18) { (b.seen ??= new Set()).add(me); if (Math.random() < 0.55) c.jump = true; }
   }
-  if (cutin?.p === opp && opp.ch.name === "TANK" && me.onGround && Math.random() < 0.45) c.jump = true;
   return c;
 }
 
@@ -935,6 +960,70 @@ function contest(p, d) {
 }
 const DASH_COST = (p) => (p.ch.name === "VOLT" ? 0.2 : 0.4);
 
+// ---- CPU personalities: each baller plays his own game ----
+// three / drive: how often a possession is a three or a drive (the rest are midrange); the rest scale the level's numbers;
+// gap: how far off the ball handler he guards (+ sags, - crowds)
+const PERSONA = {
+  BLAZE: { three: 0.15, drive: 0.6, fake: 0.8, jab: 1, steal: 1, reach: 1.3, block: 1, bite: 1.2, gap: 0 },      // goes at the rim, hot-headed on D
+  FROST: { three: 0.55, drive: 0.15, fake: 1.6, jab: 0.6, steal: 0.9, reach: 0.6, block: 1, bite: 0.7, gap: 4 },   // the shooter, patient
+  VOLT: { three: 0.2, drive: 0.5, fake: 0.8, jab: 2, steal: 1.1, reach: 1, block: 0.8, bite: 1, gap: 0 },          // jab, jab, crossover
+  TANK: { three: 0.05, drive: 0.8, fake: 0.4, jab: 0.3, steal: 0.6, reach: 0.4, block: 1.4, bite: 0.8, gap: -2 },  // bully ball, a wall on D
+  SHADE: { three: 0.25, drive: 0.35, fake: 1, jab: 1.2, steal: 1.8, reach: 1.8, block: 0.8, bite: 1, gap: -4 },    // all hands, gambles for steals
+  GRAMPS: { three: 0.3, drive: 0.15, fake: 2, jab: 0.5, steal: 0.9, reach: 0.5, block: 0.7, bite: 0.5, gap: 6 },   // old man tricks: fakes, never bites
+};
+// ---- the CPU reads you: drive every time and he backs off; shoot every time and he crowds you; bite on fakes and he fakes more
+function noteRead(k) {
+  if (!read || demo || tut || !cpu) return;
+  if (k === "drive" || k === "shot") { read.drive *= 0.88; read.shot *= 0.88; }
+  read[k]++;
+  const n = read.drive + read.shot, style = n < 3 ? read.style : read.drive / n > 0.64 ? "sag" : read.shot / n > 0.64 ? "press" : "";
+  if (style === read.style) return;
+  read.style = style;
+  if (!style) return;
+  say(players[1], "READ YOU", C.red);
+  quip(style === "sag" ? "HE BACKS OFF YOUR DRIVE. SHOOT OVER HIM" : "HE CROWDS YOUR SHOT. FAKE IT, THEN GO");
+}
+const fakeRead = (me) => (me.i === 1 && read && read.gathers >= 3 ? (read.bit / read.gathers > 0.3 ? 1.8 : read.bit / read.gathers < 0.1 ? 0.5 : 1) : 1);
+const readGap = (me) => (me.i !== 1 || !read ? 0 : read.style === "sag" ? 10 : read.style === "press" ? -5 : 0);
+
+// ---- combos: plays strung together (a steal, a fake that bit, broken ankles, a block) and what they lead to ----
+const LINK = { STEAL: 100, BLOCK: 100, SNATCH: 150, FAKE: 50, ANKLES: 150, DUNK: 200, "3PT": 150, BUCKET: 100 };
+function link(p, name, starts = true) {
+  if (demo || tut) return;
+  const c = p.combo;
+  other(p).combo.t = 0;                                                            // his play ends yours
+  if (c.t <= 0) { if (!starts) return; c.n = 0; c.names = []; }                   // a basket only finishes a chain
+  c.n++; c.t = 4; c.names.push(name);
+  p.stylePts += LINK[name] * c.n;
+  if (c.n < 2) return;
+  p.bestCombo = Math.max(p.bestCombo, c.n);
+  p.comboShow = { n: c.n, names: c.names.slice(-3), t: 2.2 };
+  gainSp(p, 0.06 * (c.n - 1));
+  beep(784 + c.n * 110, 0.06, "square", 0.045); beep(1175 + c.n * 110, 0.1, "square", 0.045, 0, 0.06);
+  if (c.n >= 3) crowd$.cheer(2);
+  if (p.i === 0) buzz(c.n >= 3 ? [20, 30, 20] : 15);
+}
+
+// ---- specials you can see coming: after the cut-in the caster winds up for a beat, the floor shows where it will hit,
+// and the one it is aimed at is told how to get out of it
+const WIND_UP = 0.6;
+const DODGE = { BLAZE: "GET AWAY!", FROST: "JUMP!", VOLT: "JUMP!", TANK: "JUMP!", SHADE: "DASH!", GRAMPS: "JUMP!" };
+function windup(p) {
+  p.charge = { t: WIND_UP, dur: WIND_UP };
+  other(p).ai.dodge = Math.random() < lvl(other(p)).dodge;                         // a CPU target reads it, or doesn't
+  beep(180, WIND_UP, "sawtooth", 0.045, 520); noise(WIND_UP, 0.05, 900, 0, "bandpass", 2, "swell");
+}
+// what the target of this caster's special should do right now (null: it can't reach him)
+function dodgeHow(p) {
+  const o = other(p), n = p.ch.name, dx = o.x - p.x;
+  if (n === "SHADE") return ball.owner === o ? "DASH!" : null;
+  if (n === "VOLT" && ball.owner === p && Math.abs(dx) > 56) return null;
+  if (n === "GRAMPS" && ball.owner !== p) return null;                             // the dentures: jump them as they come
+  if (n === "BLAZE" && Math.abs(dx) > 70) return null;
+  if (n === "FROST" && dx * p.facing <= 0) return null;
+  return DODGE[n];
+}
+
 function canDunk(p) {
   // a dunk takes a dash toward the rim: during it, or a moment after
   const front = courtSide(p), toward = -hoopOf(p).dir;
@@ -945,11 +1034,13 @@ function makeChance(p, def) {
   const h = hoopOf(p), dist = Math.abs(p.x - h.cx);
   let k = dist < 34 ? 0.74 : dist <= THREE ? (0.6 - (dist - 34) * 0.0022) * p.ch.shot : (0.42 - (dist - THREE) * 0.003) * p.ch.three;
   k *= 1 - contest(p, def) * 0.6;
+  if (court === "roof" && dist > 34) k *= 1 + wind * (Math.sign(h.cx - p.x) || 1) * (dist > THREE ? 0.25 : 0.15);   // with the wind, or into it
   if (p.fire) k *= p.infernoT > 0 ? 1.4 : 1.25;
   return k;
 }
 
 function startShot(p) {
+  if (p.i === 0) noteRead("shot");
   p.shooting = true; p.shootT = 0; say$(p, "shot"); p.facing = Math.sign(hoopOf(p).cx - p.x) || 1;
   if (p.onGround) { p.vy = -SHOT_JUMP * p.ch.jmp; p.onGround = false; p.vx *= 0.3; }
 }
@@ -971,7 +1062,7 @@ function release(p, forced = null) {
   const g = BALL_G * gravMul, ty = h.y - 2, T = Math.max(0.75, 0.55 + Math.abs(bx - h.cx) / 190) / Math.sqrt(gravMul) * (forced ? 1.45 : 1);
   Object.assign(ball, {
     owner: null, live: true, shooter: p, pts: dist > THREE ? 3 : 2, rimmed: false, blocked: false, counted: false, age: 0, quality: q, granny: !!forced,
-    x: bx, y: by, prevY: by, fromX: p.x, vx: (tx - bx) / T, vy: (ty - by - 0.5 * g * T * T) / T, trail: [], homing: null,
+    x: bx, y: by, prevY: by, fromX: p.x, vx: (tx - bx) / T - 0.5 * windA() * T, vy: (ty - by - 0.5 * g * T * T) / T, trail: [], homing: null,
   });
   sfx.shoot();
   if (p.i === 0 && (q === "perfect" || q === "good")) tutHit("shoot");
@@ -1023,7 +1114,7 @@ function updateDunk(p, dt) {
     p.fallen = 0.9; p.fallDir = h.dir; p.flash = 0.1; p.vx = h.dir * 60;
     hitFx("block", ball.x, ball.y, def.col, def.facing, 1.6); pop(def, "DENIED!", C.gold);
     impact({ stop: 0.16, zoom: 1.12, at: [ball.x, ball.y], shake: 5, dx: def.facing });
-    sfx.block(); sfx.ooh(); hype = 1; gainSp(def, 0.15); quip(["GET THAT OUT OF HERE", "NOT IN MY HOUSE", "REJECTED"]);
+    sfx.block(); sfx.ooh(); hype = 1; gainSp(def, 0.15); link(def, "BLOCK"); quip(["GET THAT OUT OF HERE", "NOT IN MY HOUSE", "REJECTED"]);
   }
 }
 
@@ -1035,6 +1126,7 @@ function startDash(p, dir) {
   p.stam = Math.max(0, p.stam - DASH_COST(p)); p.dashGap = 0.22; p.dashCd = 0.22;
   dust(p.x, 5, -dir); sfx.whoosh(); sfx.squeak();
   if (ball.owner !== p) return;
+  if (p.i === 0 && dir === (Math.sign(hoopOf(p).cx - p.x) || 1)) noteRead("drive");
   p.dashRolled = !((opp.x - p.x) * dir > 0);                                      // only a dash at the defender can break him
 }
 
@@ -1045,7 +1137,7 @@ function dashContact(p) {
   p.dashRolled = true;
   if (d.ch.name !== "TANK" && committed(d, p.dashDir)) {
     d.fallen = 1.4; d.fallDir = -p.dashDir; d.vy = -70; d.onGround = false; d.flash = 0.1;
-    say(p, "CROSSOVER", C.gold); gainSp(p, 0.15);
+    say(p, "CROSSOVER", C.gold); gainSp(p, 0.15); link(p, "ANKLES");
     hitFx("ankle", d.x, FLOOR, p.col, p.dashDir); pop(d, "ANKLES!", C.gold);
     impact({ stop: 0.12, slow: 0.5, zoom: 1.14, at: [d.x, d.y - 12 * K], shake: 4, dx: p.dashDir });
     sfx.crack(); sfx.ooh(); hype = 1; quip(ANKLE);
@@ -1065,14 +1157,14 @@ function dashContact(p) {
 function trySteal(p, opp) {
   p.cd = 0.7; p.swipe = 0.18; p.facing = Math.sign(opp.x - p.x) || p.facing;
   const dx = opp.x - p.x, sticky = p.ch.name === "SHADE";
-  if (!stealOpen(p, opp)) { p.whiff = sticky ? 0.2 : 0.45; say(p, "WHIFF", C.dim); sfx.whoosh(); return; }
+  if (!stealOpen(p, opp)) { p.whiff = sticky ? 0.2 : 0.45; say(p, "WHIFF", C.dim); sfx.whoosh(); if (p.i === 0) noteRead("reach"); return; }
   const [hx, hy] = ballHeld(opp);
   dropBall(opp, -Math.sign(dx) * 45, -90);
   opp.stun = 0.45; opp.flash = 0.08; gainSp(p, 0.15);
   hitFx("steal", hx, hy, p.col, Math.sign(dx) || 1);
   impact({ stop: 0.08, zoom: 1.06, at: [hx, hy], shake: 3, dx: -Math.sign(dx) });
   sfx.steal(); hype = Math.max(hype, 0.5); say$(p, "steal"); if (p.i === 0) tutHit("steal");
-  pop(p, "STEAL!", p.col);
+  pop(p, "STEAL!", p.col); link(p, "STEAL");
   if (sticky) passiveFx(p, [hx, hy]);
 }
 
@@ -1089,12 +1181,12 @@ function slip(p, b) {
 
 // ---------- specials ----------
 function trySpecial(p) {
-  if (p.sp < 1 || busy(p) || p.shooting || p.granny > 0 || cutin || phase !== "play") return;
+  if (p.sp < 1 || busy(p) || p.shooting || p.granny > 0 || p.charge || cutin || phase !== "play") return;
   if (p.ch.name === "SHADE" && ball.owner === p) { say(p, "GOT IT ALREADY", C.dim); return; }
   p.sp = 0;
   if (p.i === 0) tutHit("special");
-  if (demo) { SPECIALS[p.ch.name](p); return; }
-  cutin = { p, t: 0, dur: 0.85, fn: () => SPECIALS[p.ch.name](p) }; duckMusic(1);
+  if (demo) { windup(p); return; }
+  cutin = { p, t: 0, dur: 0.85, fn: () => windup(p) }; duckMusic(1);
   sfx.cutin(); say$(p, "big");
 }
 
@@ -1110,11 +1202,11 @@ const SPECIALS = {
     later(1.4, () => f.stop());
     p.fire = true; p.infernoT = 10;
     const o = other(p);
-    if (Math.abs(o.x - p.x) < 50) {
+    if (Math.abs(o.x - p.x) < 46) {
       const d = Math.sign(o.x - p.x) || 1;
       o.fallen = 1; o.fallDir = d; o.vx = d * 150; o.vy = -160; o.onGround = false; o.flash = 0.12;
       dropBall(o, d * 60, -150);
-    }
+    } else if (Math.abs(o.x - p.x) < 80) say(o, "DODGED", C.gold);
     impact({ stop: 0.1, zoom: 1.12, at: [p.x, p.y - 20 * K], shake: 6, dy: 1 });
     sfx.boom(); hype = 1; shout("INFERNO!"); quip("HE IS LITERALLY ON FIRE");
   },
@@ -1122,8 +1214,8 @@ const SPECIALS = {
     const o = other(p), f = p.facing;
     spawnW(iceSpikes, { x: p.x + f * 6 * K, y: FLOOR, flip: f < 0 });
     sfx.freeze();
-    later(0.25, () => {
-      if ((o.x - p.x) * f > 0 && Math.abs(o.x - p.x) < 230 && o.y > FLOOR - 30) {
+    later(0.08, () => {
+      if ((o.x - p.x) * f > 0 && Math.abs(o.x - p.x) < 230 && o.y > FLOOR - 8) {
         o.frozen = 2.2; o.frozenKind = "ice"; o.vx = 0; o.dunk = null; o.shooting = false;
         dropBall(o, 0, -40);
         impact({ stop: 0.12, zoom: 1.1, at: [o.x, o.y - 14 * K], shake: 4, dx: f });
@@ -1134,7 +1226,7 @@ const SPECIALS = {
   VOLT(p) {
     const o = other(p), h = hoopOf(p);
     spawnW(zap, { x: p.x, y: p.y - 14 * K });
-    if (Math.abs(o.x - p.x) < 40) zapped(o, 0.8);
+    if (Math.abs(o.x - p.x) < 40) { if (o.onGround) zapped(o, 0.8); else say(o, "DODGED", C.volt); }
     if (ball.owner === p) {
       p.x = h.cx + h.dir * 40; p.y = FLOOR; p.vx = p.vy = 0; p.onGround = true; p.dashDir = -h.dir;
       spawnW(lightning, { x: p.x, y: FLOOR });
@@ -1143,7 +1235,7 @@ const SPECIALS = {
       const tx = ball.owner === o ? o.x + o.facing * 16 : ball.x;
       p.x = clamp(tx, 8, W - 8); p.y = FLOOR; p.vy = 0; p.onGround = true;
       spawnW(lightning, { x: p.x, y: FLOOR });
-      if (ball.owner === o) { zapped(o, 0.9); }
+      if (ball.owner === o) { if (o.onGround) zapped(o, 0.9); else say(o, "DODGED", C.volt); }
     }
     impact({ stop: 0.1, zoom: 1.12, at: [p.x, p.y - 20 * K], shake: 5 });
     sfx.thunder(); hype = 1; shout("THUNDER STEP!");
@@ -1164,13 +1256,16 @@ const SPECIALS = {
       impact({ stop: big ? 0.14 : 0.06, zoom: big ? 1.08 : 1.04, shake: big ? 9 : 6, dy: 1 });
       sfx.boom();
     };
-    shock(true); shout("EARTHQUAKE!"); hype = 1;
+    shock(true); shout("EARTHQUAKE!"); hype = 1; p.quakeT = 0.55;
     later(0.55, () => { if (phase === "play") shock(false); });
   },
   SHADE(p) {
     const f = spawnW(blackHole, { x: ball.x, y: ball.y + 20 });
     later(1.3, () => f.stop());
     const o = other(p);
+    if (ball.owner === o && (o.dashT > 0 || o.dashGap > 0)) {                       // he dashed out of it just in time
+      say(o, "DODGED", hex("#9a7cff")); impact({ stop: 0.06, zoom: 1.06, at: [ball.x, ball.y], shake: 2 }); sfx.boom(); shout("BLACK HOLE!"); return;
+    }
     if (ball.owner === o) { o.stun = 0.5; }
     dropBall(o, 0, -30);
     if (!ball.owner) { ball.homing = p; ball.homeT = 1.6; ball.live = false; ball.shooter = null; }
@@ -1181,13 +1276,13 @@ const SPECIALS = {
     const o = other(p);
     if (ball.owner === p) {
       spawnW(timeStop, { x: p.x, y: FLOOR });
-      o.frozen = 2.4; o.frozenKind = "time"; o.vx = 0;
+      if (o.onGround) { o.frozen = 2.4; o.frozenKind = "time"; o.vx = 0; } else say(o, "DODGED", WHITE);
       p.granny = 0.5; p.vx = 0; p.facing = Math.sign(hoopOf(p).cx - p.x) || 1;
       later(0.5, () => { if (ball.owner === p) release(p, true); });
       shout("TIME OUT!"); quip(["BACK IN MY DAY...", "GRANNY STYLE", "HE INVENTED THIS"]);
       sfx.freeze();
     } else {
-      teeth.push({ x: p.x + p.facing * 6 * K, y: p.y - 22 * K, vx: p.facing * 210, vy: -40, from: p, spin: 0 });
+      teeth.push({ x: p.x + p.facing * 6 * K, y: p.y - 22 * K, vx: p.facing * 170, vy: 0, from: p, spin: 0 });
       shout("DENTURES!"); sfx.whoosh();
     }
     impact({ stop: 0.06, zoom: 1.06, at: [p.x, p.y - 20 * K], shake: 2 });
@@ -1196,7 +1291,9 @@ const SPECIALS = {
 
 function updatePlayer(p, c, dt) {
   const opp = other(p), g = GRAV * gravMul;
-  for (const k of ["cd", "swipe", "whiff", "dashGap", "dunkWin", "squash", "flash", "celebrate", "granny"]) p[k] -= dt;
+  for (const k of ["cd", "swipe", "whiff", "dashGap", "dunkWin", "squash", "flash", "celebrate", "granny", "quakeT"]) p[k] -= dt;
+  if (p.combo.t > 0) p.combo.t -= dt;
+  if (p.comboShow && (p.comboShow.t -= dt) <= 0) p.comboShow = null;
   p.stam = Math.min(1, p.stam + dt * 0.3);
   p.dashCd = p.stam >= DASH_COST(p) ? Math.max(0, p.dashGap) : (DASH_COST(p) - p.stam) / 0.3;
   p.landT -= dt;
@@ -1207,6 +1304,12 @@ function updatePlayer(p, c, dt) {
   for (const gh of p.ghosts) gh.a -= dt * 3;
   p.ghosts = p.ghosts.filter((gh) => gh.a > 0);
   if (phase === "play") gainSp(p, dt * 0.045);
+  // winding up a special: he stands and gathers it; knock him down, freeze or stun him and it fizzles
+  if (p.charge) {
+    if (p.fallen > 0 || p.frozen > 0 || p.stun > 0.3) { p.charge = null; say(p, "FIZZLED", C.dim); }
+    else if ((p.charge.t -= dt) <= 0) { p.charge = null; SPECIALS[p.ch.name](p); }
+    else { c = NONE; if (p.onGround) p.vx = 0; if (Math.random() < 0.7) part({ x: p.x + rnd(-6, 6) * K, y: p.y - rnd(0, 26) * K, vy: -rnd(30, 70), g: -20, life: 0.35, c: p.col, floor: false }); }
+  }
   if (p.infernoT > 0 && (p.infernoT -= dt) <= 0 && p.streak < fireAt(p)) p.fire = false;
   if (p.fire && Math.random() < (p.infernoT > 0 ? 1 : 0.5)) part({ x: p.x + rnd(-4, 4) * K, y: p.y - rnd(4, 22) * K, vy: -rnd(20, 45), g: -20, life: rnd(0.25, 0.45), c: pick(C.fire), floor: false });
   if (p.hang > 0) {
@@ -1225,18 +1328,18 @@ function updatePlayer(p, c, dt) {
 
   if (c.dash && p.dashCd <= 0 && p.onGround && !p.shooting && !p.dunk) startDash(p, dir || p.facing);
   if (p.dashT > 0) {
-    p.dashT -= dt; p.vx = p.dashDir * SPEED * DASH * p.ch.spd;
+    p.dashT -= dt; p.vx = p.dashDir * SPEED * DASH * p.ch.spd * (court === "beach" ? 0.75 : 1);
     if ((p.ghostT -= dt) <= 0) { p.ghostT = 0.03; p.ghosts.push({ x: p.x, y: p.y, f: p.facing, a: 0.6 }); }
     dashContact(p);
   } else if (!p.shooting && !p.dunk && p.fallen <= 0 && p.frozen <= 0 && p.gather <= 0) {
-    const sp = SPEED * p.ch.spd * (cpu && p.i === 1 && !demo ? lvl(p).speed : 1) * (has ? 0.92 : 1) * (p.whiff > 0 ? 0.35 : 1) * (p.fire ? 1.12 : 1);
-    if (p.onGround) p.vx = dir * sp; else p.vx += (dir * sp - p.vx) * Math.min(1, dt * 3);
+    const sp = SPEED * p.ch.spd * (cpu && p.i === 1 && !demo ? lvl(p).speed : 1) * (has ? 0.92 : 1) * (p.whiff > 0 ? 0.35 : 1) * (p.fire ? 1.12 : 1) * (court === "beach" ? 0.88 : 1);
+    if (p.onGround) p.vx = court === "ice" ? p.vx + (dir * sp - p.vx) * Math.min(1, dt * (dir ? 4.5 : 2)) : dir * sp; else p.vx += (dir * sp - p.vx) * Math.min(1, dt * 3);
     if (dir) p.facing = dir;
   }
   if (c.jump && p.onGround && !p.shooting && p.whiff <= 0 && !p.dunk) { p.vy = -JUMP * p.ch.jmp * (p.fire ? 1.15 : 1); p.onGround = false; dust(p.x, 3); if (Math.random() < 0.3) say$(p, "hup"); }
   if (c.shoot) {
     // with the ball: a dunk if you're driving at the rim; otherwise you gather (ball up), and holding through it is a shot
-    if (has && !p.shooting && !p.dunk && p.gather <= 0) { if (canDunk(p)) startDunk(p); else if (p.onGround) p.gather = 0.13; else startShot(p); }
+    if (has && !p.shooting && !p.dunk && p.gather <= 0) { if (canDunk(p)) startDunk(p); else if (p.onGround) { p.gather = 0.13; if (p.tag === "CPU" && opp.i === 0 && read) read.gathers++; } else startShot(p); }
     else if (!has && p.cd <= 0 && ball.owner === opp) trySteal(p, opp);
   }
   if (p.gather > 0) {
@@ -1250,7 +1353,7 @@ function updatePlayer(p, c, dt) {
   if (p.fakeT > 0) {
     p.fakeT -= dt;
     if (!p.bitDone && !opp.onGround && !opp.dunk && Math.abs(opp.x - p.x) < 40) {
-      p.bitDone = true; pop(opp, "BIT!", C.gold); sfx.boing(); hype = Math.max(hype, 0.6);
+      p.bitDone = true; link(p, "FAKE"); if (opp.i === 0 && read) read.bit++; pop(opp, "BIT!", C.gold); sfx.boing(); hype = Math.max(hype, 0.6);
       impact({ slow: 0.3, zoom: 1.07, at: [opp.x, opp.y - 30] }); hitFx("steal", opp.x, opp.y - 44, C.gold, 1);
       if (!demo) crowd$.ooh();
       if (p.i === 0) tutHit("fake");
@@ -1273,6 +1376,9 @@ function updatePlayer(p, c, dt) {
   p.x = clamp(p.x, 8, W - 8);
   if (p.y < 50) { p.y = 50; p.vy = Math.max(p.vy, 0); }                          // moon jumps stop at the rafters, not off the screen
   p.walk += Math.abs(p.vx) * dt;
+  // the court underfoot: ice sprays off a slide, sand kicks up
+  if (court === "ice" && p.onGround && Math.abs(p.vx) > 50 && Math.random() < dt * 12) part({ x: p.x, y: FLOOR, vx: -p.vx * 0.2, vy: -rnd(10, 30), g: 120, life: 0.3, c: WHITE });
+  if (court === "beach" && p.onGround && Math.abs(p.vx) > 40 && Math.random() < dt * 14) part({ x: p.x, y: FLOOR, vx: -p.vx * 0.15 + rnd(-10, 10), vy: -rnd(20, 50), g: 260, life: 0.4, c: hex("#e0c080") });
   const dirNow = Math.sign(Math.round(p.vx / 20));
   if (dirNow && p.lastDir && dirNow !== p.lastDir && p.onGround && !demo && Math.random() < 0.7) sfx.squeak();   // a hard cut
   if (dirNow) p.lastDir = dirNow;
@@ -1322,7 +1428,7 @@ function updateBall(dt) {
   }
   if (ball.live && (ball.quality === "perfect" || golden || ball.shooter?.fire)) { ball.trail.push([ball.x, ball.y]); if (ball.trail.length > 8) ball.trail.shift(); }
   else if (ball.trail.length) ball.trail.shift();
-  ball.vy += BALL_G * gravMul * dt; ball.x += ball.vx * dt; ball.y += ball.vy * dt;
+  ball.vy += BALL_G * gravMul * dt; if (ball.y < FLOOR - BR - 1) ball.vx += windA() * dt; ball.x += ball.vx * dt; ball.y += ball.vy * dt;
   for (const h of HOOPS) {
     if (collidePoint(h.front, h.y) || collidePoint(h.back, h.y)) {
       if (!ball.rimmed || Math.abs(ball.vy) > 40) { sfx.rim(); h.wob = Math.max(h.wob, 0.6); }
@@ -1344,7 +1450,7 @@ function updateBall(dt) {
     }
     ball.live = false;
     if (ball.vy > 30) sfx.bounce();
-    ball.vy = Math.abs(ball.vy) < 25 ? 0 : -ball.vy * 0.62;
+    ball.vy = Math.abs(ball.vy) < 25 ? 0 : -ball.vy * (court === "beach" ? 0.45 : 0.62);   // sand eats the bounce
   }
   if (ball.x < BR) { ball.x = BR; ball.vx = Math.abs(ball.vx) * 0.5; }
   if (ball.x > W - BR) { ball.x = W - BR; ball.vx = -Math.abs(ball.vx) * 0.5; }
@@ -1357,7 +1463,7 @@ function updateBall(dt) {
       ball.live = false; ball.blocked = true; ball.vx = -ball.vx * 0.5 + d.facing * 30; ball.vy = 50;
       hitFx("block", ball.x, ball.y, d.col, d.facing); pop(d, "BLOCK!", C.gold); if (d.i === 0) tutHit("block");
       impact({ stop: 0.12, zoom: 1.1, at: [ball.x, ball.y], shake: 5, dx: d.facing });
-      sfx.block(); sfx.ooh(); hype = 1; gainSp(d, 0.15);
+      sfx.block(); sfx.ooh(); hype = 1; gainSp(d, 0.15); link(d, "BLOCK");
       if (Math.random() < 0.2) { s.fallen = 0.7; s.fallDir = -s.facing; s.flash = 0.1; burst(s.x, s.y - 26 * K, 8, C.gold); sfx.boing(); quip("BALL TO THE FACE"); }
       return;
     }
@@ -1384,14 +1490,15 @@ function snatch(p) {
   p.ai.plan = null; p.shooting = false;
   hitFx("snatch", ball.x, ball.y, p.col, p.facing); pop(p, "SNATCHED!", C.gold); if (p.i === 0) tutHit("block");
   impact({ stop: 0.1, zoom: 1.08, at: [ball.x, ball.y], shake: 3, dx: p.facing });
-  sfx.steal(); sfx.ooh(); hype = 1; gainSp(p, 0.15); say$(p, "steal");
+  sfx.steal(); sfx.ooh(); hype = 1; gainSp(p, 0.15); say$(p, "steal"); link(p, "SNATCH");
   if (s) say(s, "HEY!", C.red);
   quip(["MINE NOW", "THANKS FOR THE PASS", "HE JUST TOOK IT", "SPECIAL DELIVERY"]);
 }
 
 function updateTeeth(dt) {
   for (const t of teeth) {
-    t.vy += 120 * dt; t.x += t.vx * dt; t.y += t.vy * dt; t.spin += dt;
+    // the dentures chatter along the floor at his ankles: jump them
+    t.x += t.vx * dt; t.spin += dt; t.y = FLOOR - 7 - Math.abs(Math.sin(t.spin * 14)) * 5;
     const o = other(t.from);
     if (!t.hit && Math.abs(t.x - o.x) < 10 && t.y > o.y - 46 && t.y < o.y - 2) {
       t.hit = true; o.stun = 1.2; o.flash = 0.12; dropBall(o, t.vx * 0.2, -110);
@@ -1407,9 +1514,12 @@ function updateTeeth(dt) {
 function score(h, info = {}) {
   const p = players[HOOPS.indexOf(h) === 1 ? 0 : 1], o = other(p), shot = ball.shooter === p;
   let pts = info.dunk ? 2 : shot ? ball.pts : 2;
-  const gold = golden;
-  if (golden) { pts *= 2; golden = false; if (chaos?.kind === "golden") endChaos(); }
-  p.score += pts; p.streak = lastScorer === p ? p.streak + 1 : 1; lastScorer = p; o.streak = 0;
+  const voided = chaos?.kind === "sniper" && !(shot && !info.dunk && ball.pts === 3);    // the sniper round: only threes count
+  if (voided) { pts = 0; quip("ONLY THREES COUNT!"); }
+  const gold = golden && !voided;
+  if (gold) { pts *= 2; golden = false; if (chaos?.kind === "golden") endChaos(); }
+  p.score += pts; if (!voided) { p.streak = lastScorer === p ? p.streak + 1 : 1; o.streak = 0; } lastScorer = p;
+  o.combo.t = 0; if (!voided) link(p, info.dunk ? "DUNK" : pts >= 3 ? "3PT" : "BUCKET", false);
   duckMusic(info.dunk || pts >= 3 ? 1 : 0.6);
   if (!demo && p.ch.name !== "BLAZE" || (!demo && p.streak >= 3)) {
     if (p.streak === 2) later(0.9, () => quip("TWO IN A ROW"));
@@ -1425,7 +1535,7 @@ function score(h, info = {}) {
   const granny = shot && ball.granny;
   Object.assign(ball, { owner: null, live: false, shooter: null, vx: ball.vx * 0.2, vy: Math.max(ball.vy, 60), homing: null });
   h.net = 1; h.wob = Math.max(h.wob, 0.3);
-  const word = info.word ?? (granny ? "GRANNY!" : lit ? "ON FIRE!" : !shot ? "PUTBACK!" : pts >= 3 && !gold ? "3PT!" : swish ? "SWISH!" : layup ? "LAYUP!" : perfect ? "WET!" : "NICE!");
+  const word = voided ? "NO COUNT" : info.word ?? (granny ? "GRANNY!" : lit ? "ON FIRE!" : !shot ? "PUTBACK!" : pts >= 3 && !gold ? "3PT!" : swish ? "SWISH!" : layup ? "LAYUP!" : perfect ? "WET!" : "NICE!");
   spawnW(collect, { x: h.cx, y: h.y + 22 });
   spawnW(dmgNum, { x: h.cx + h.dir * 4, y: h.y - 6, text: "+" + pts });
   if (info.dunk) spawnH(critNum, { x: W / 2, y: 62, text: "+" + pts, label: word.replace(/!/g, "") });
@@ -1464,17 +1574,25 @@ const CHAOS = {
   moon: { name: "MOON GRAVITY", sub: "EVERYONE FLOATS", col: hex("#b0a8ff"), dur: 10,
     start: () => { gravMul = 0.42; chaosFx.push(spawnW(shootingStars, { x: W / 2, y: H })); }, end: () => { gravMul = 1; } },
   banana: { name: "BANANA RAIN", sub: "WATCH YOUR STEP", col: hex("#ffe03c"), dur: 3,
-    start: () => { for (let i = 0; i < 8; i++) bananas.push({ x: rnd(44, 276), y: -rnd(10, 160), vy: 0, landed: false, life: 18, spin: rnd(0, 6) }); } },
+    start: () => { for (let i = 0; i < 8; i++) bananas.push({ x: bananaX(i), y: -rnd(10, 160), vy: 0, landed: false, life: 18, spin: rnd(0, 6) }); } },
   bighead: { name: "BIG HEAD MODE", sub: "HUGE BRAIN ENERGY", col: hex("#ff86e6"), dur: 12,
     start: () => { for (const p of players) spawnW(poof, { x: p.x, y: p.y - 14 * K }); } },
+  sniper: { name: "SNIPER ROUND", sub: "ONLY 3S COUNT", col: hex("#7cff9a"), dur: 10, start: () => {} },
   golden: { name: "GOLDEN BALL", sub: "NEXT BASKET X2", col: hex("#ffc23c"), dur: 0,
     start: () => { golden = true; chaosFx.push(spawnW(godRays, { x: W / 2, y: FLOOR + 20 })); }, end: () => { golden = false; } },
   storm: { name: "LIGHTNING STORM", sub: "DONT STAND STILL", col: hex("#8cf0ff"), dur: 9,
     start: () => { chaosFx.push(spawnW(storm, { x: W / 2, y: FLOOR + 20 })); chaos.next = 0.6; } },
 };
 let chaosBag = [];
+// chaos leans toward the side that is behind: someone up by 3 or more draws the storm, the bananas and the sniper round
+// more often, the lightning and the bananas find him, and the other side gets a shot of SP
+const leaderNow = () => { const [a, b] = players; return demo || Math.abs(a.score - b.score) < 3 ? null : a.score > b.score ? a : b; };
+const bananaX = (i) => { const L = chaos?.leader; if (!L || i >= 6) return rnd(44, 276); return hoopOf(L).cx < 160 ? rnd(44, 160) : rnd(160, 276); };
 function startChaos(kind) {
-  if (!kind) { if (!chaosBag.length) chaosBag = Object.keys(CHAOS).sort(() => Math.random() - 0.5); kind = chaosBag.pop(); }
+  if (!kind) {
+    if (leaderNow() && Math.random() < 0.6) kind = pick(["storm", "banana", "sniper"]);
+    else { if (!chaosBag.length) chaosBag = Object.keys(CHAOS).sort(() => Math.random() - 0.5); kind = chaosBag.pop(); }
+  }
   if (demo) { beginChaos(kind); return; }
   chaosIntro = { kind, t: 0, dur: 2.1, lockAt: 1.15, locked: false, shown: 0, last: -1 };
   sfx.siren();
@@ -1482,8 +1600,9 @@ function startChaos(kind) {
 function beginChaos(kind) {
   endChaos();
   const ev = CHAOS[kind];
-  chaos = { kind, t: ev.dur, dur: ev.dur };
+  chaos = { kind, t: ev.dur, dur: ev.dur, leader: leaderNow() };
   ev.start();
+  if (chaos.leader) { const u = other(chaos.leader); gainSp(u, 0.35); pop(u, "+SP", C.gold); later(0.6, () => quip("CHAOS HELPS THE UNDERDOG")); }
   spawnW(poof, { x: W / 2, y: 112 });
   hype = 1;
 }
@@ -1499,7 +1618,7 @@ function updateChaos(dt) {
   if (chaos.kind === "storm") {
     if ((chaos.next -= dt) <= 0) {
       chaos.next = rnd(0.7, 1.2);
-      const target = Math.random() < 0.5 ? pick(players).x + rnd(-10, 10) : rnd(30, 290);
+      const who = chaos.leader && Math.random() < 0.75 ? chaos.leader : pick(players), target = Math.random() < 0.5 ? who.x + rnd(-10, 10) : rnd(30, 290);
       strikes.push({ x: clamp(target, 20, 300), t: 0.7 });
     }
     for (const s of strikes) if ((s.t -= dt) <= 0 && !s.done) {
@@ -1539,6 +1658,12 @@ function step(dt) {
   bananas = bananas.filter((b) => b.life > 0);
   for (const h of HOOPS) { h.wob = Math.max(0, h.wob - dt * 2.5); h.net = Math.max(0, h.net - dt * 2); }
   hype = Math.max(0, hype - dt * 0.5);
+  // the rooftop wind: it shifts every few seconds, and you can see it blow
+  if (court === "roof" && (phase === "play" || demo)) {
+    if ((windT -= dt) <= 0) { windT = rnd(6, 10); const was = windTo; windTo = pick([-1, -0.65, -0.35, 0.35, 0.65, 1]); if (was && Math.sign(was) !== Math.sign(windTo)) quip("THE WIND TURNS"); }
+    wind += (windTo - wind) * Math.min(1, dt * 1.2);
+    if (Math.random() < Math.abs(wind) * dt * 14) part({ x: wind > 0 ? 0 : W, y: rnd(30, FLOOR - 4), vx: wind * rnd(140, 200), vy: rnd(-5, 5), life: 2.2, c: hex("#e8d8f0"), floor: false });
+  }
   if (banner && (banner.t -= dt) <= 0) banner = null;
   if (caption && (caption.t -= dt) <= 0) caption = null;
   if (flash && (flash.t -= dt) <= 0) flash = null;
@@ -1550,7 +1675,7 @@ function step(dt) {
   }
   if (phase === "countdown") { if (stateT > 1.86) { phase = "play"; sfx.fanfare(); sfx.whistle(); } else return; }
 
-  const ctrls = players.map((p, i) => (i === 1 && tut ? tutControl(p) : demo || (i === 1 && cpu) ? cpuControl(p, other(p), dt) : humanControl(cpu ? SOLO : BINDS[i])));
+  const ctrls = players.map((p, i) => (i === 1 && tut ? tutControl(p) : demo || (i === 1 && cpu) || (i === 0 && autoP1) ? cpuControl(p, other(p), dt) : humanControl(cpu ? SOLO : BINDS[i])));
   if (phase === "scored") ctrls.forEach((c, i) => { ctrls[i] = NONE; });
   players.forEach((p, i) => updatePlayer(p, ctrls[i], dt));
   // bodies don't pass through each other on the floor, except on a dash
@@ -1565,11 +1690,18 @@ function step(dt) {
   updateTeeth(dt);
   updateChaos(dt);
   if (phase === "scored") {
-    if (stateT > 1.6) { if (tut) tutSetup(); else setPossession(1 - lastScorer.i); phase = "play"; }
+    if (stateT > 1.6) {
+      if (!tut && !demo && rule === "to11" && Math.max(a.score, b.score) >= 11) { endGame(); return; }
+      if (tut) tutSetup(); else setPossession(rule === "keep" ? lastScorer.i : 1 - lastScorer.i);   // make it take it: the scorer keeps it
+      phase = "play";
+    }
     return;
   }
   if (phase !== "play") return;
   if (tut) return;                                                         // practice: no clock, no chaos, no end
+  elapsed += dt;
+  // first to 11: no clock, chaos every 20 seconds played, the game ends on the basket that gets there
+  if (rule === "to11") { if (chaosIdx < CHAOS_AT.length && elapsed >= 20 * (chaosIdx + 1) && !cutin) { chaosIdx++; startChaos(); } return; }
   const secBefore = Math.ceil(clock);
   clock -= dt;
   if (!demo && !overtime && Math.ceil(clock) !== secBefore && secBefore <= 5 && secBefore >= 1) sfx.clockTick(secBefore === 1);
@@ -1621,6 +1753,8 @@ function menuItems() {
   return [];
 }
 
+function cycleCourt() { const list = ["random", ...COURTS]; settings.court = list[(list.indexOf(settings.court) + 1) % list.length]; saveSettings(); sfx.click(); }
+function cycleRule() { settings.rule = RULES[(RULES.indexOf(settings.rule) + 1) % RULES.length]; saveSettings(); sfx.click(); }
 function selectPick(i) {
   if (screen !== "select") return;
   const who = sel.lock[0] ? (sel.mode === "pvp" ? 1 : -1) : 0;
@@ -1645,6 +1779,8 @@ function selectInput(real) {
     { l: ["KeyA", ...(pvp ? [] : ["ArrowLeft"])], r: ["KeyD", ...(pvp ? [] : ["ArrowRight"])], ok: ["KeyF", "Space", ...(pvp ? [] : ["Enter"])] },
     { l: ["ArrowLeft"], r: ["ArrowRight"], ok: ["Enter", "Slash"] },
   ];
+  if (pressed.has("KeyC")) cycleCourt();
+  if (pressed.has("KeyR")) cycleRule();
   for (const who of pvp ? [0, 1] : [0]) {
     if (sel.lock[who]) continue;
     if (any(P[who].l, pressed)) { sel.cur[who] = (sel.cur[who] + n - 1) % n; sfx.click(); }
@@ -1694,7 +1830,7 @@ function menuInput(real) {
 // ---------- settings ----------
 // Kept on the device. Music and sound volume, vibration, how hard the CPU plays, the size of the touch buttons,
 // a left-handed layout (stick on the right), and the language.
-const settings = Object.assign({ music: 7, sfx: 8, vibe: true, diff: "normal", btn: "M", lefty: false, tutDone: false },
+const settings = Object.assign({ music: 7, sfx: 8, vibe: true, diff: "normal", btn: "M", lefty: false, tutDone: false, court: "random", rule: "classic" },
   (() => { try { return JSON.parse(localStorage.getItem("hoops.settings") || "{}"); } catch { return {}; } })());
 const saveSettings = () => { try { localStorage.setItem("hoops.settings", JSON.stringify(settings)); } catch {} };
 const DIFFS = ["easy", "normal", "hard"], BTNS = ["S", "M", "L"];
@@ -1702,9 +1838,9 @@ const DIFFS = ["easy", "normal", "hard"], BTNS = ["S", "M", "L"];
 const DIFF = {
   // steal: chance per frame to take an open window; reach: careless reaches per second; bite: how often he jumps at a fake;
   // fake: how often he fakes a covered shot; jab: how often he jabs to set up a crossover
-  easy: { speed: 0.82, aim: 0.17, react: [0.22, 0.42], steal: 0.05, reach: 0.7, block: 0.3, bite: 0.65, fake: 0.1, jab: 0.2, special: [3, 6] },
-  normal: { speed: 0.93, aim: 0.09, react: [0.08, 0.22], steal: 0.12, reach: 0.35, block: 0.5, bite: 0.4, fake: 0.3, jab: 0.45, special: [1, 3] },
-  hard: { speed: 1.02, aim: 0.05, react: [0.04, 0.12], steal: 0.25, reach: 0.1, block: 0.7, bite: 0.15, fake: 0.5, jab: 0.8, special: [0.6, 1.6] },
+  easy: { speed: 0.82, aim: 0.17, react: [0.22, 0.42], steal: 0.05, reach: 0.7, block: 0.3, bite: 0.65, fake: 0.1, jab: 0.2, special: [3, 6], dodge: 0.2 },
+  normal: { speed: 0.93, aim: 0.09, react: [0.08, 0.22], steal: 0.12, reach: 0.35, block: 0.5, bite: 0.4, fake: 0.3, jab: 0.45, special: [1, 3], dodge: 0.45 },
+  hard: { speed: 1.02, aim: 0.05, react: [0.04, 0.12], steal: 0.25, reach: 0.1, block: 0.7, bite: 0.15, fake: 0.5, jab: 0.8, special: [0.6, 1.6], dodge: 0.7 },
 };
 // the level for this CPU: the player's choice against a human, normal when CPUs play each other
 const lvl = (p) => DIFF[!demo && cpu && p.i === 1 && !tut ? settings.diff : "normal"];
@@ -1917,16 +2053,28 @@ const KO = {
   "JUMP INTO A FLYING BALL WITH YOUR HANDS UP = CATCH IT": "점프해서 날아오는 공에 손 대면 낚아채기",
   "CHAOS EVERY 20 SECONDS. IT GETS WEIRD": "20초마다 카오스. 갈수록 이상해짐",
   "ESC PAUSE   M SOUND   N MUSIC   T LANGUAGE   1P ALSO WORKS WITH ARROWS": "ESC 일시정지   M 소리   N 음악   T 언어   1P는 방향키도 OK",
+  "ARENA": "아레나", "ROOFTOP": "옥상", "BEACH": "해변", "ICE RINK": "빙판", "RANDOM": "랜덤", "COURT": "코트", "WIND": "바람",
+  "THE ARENA: NO SURPRISES": "아레나: 변수 없는 정통 코트", "ROOFTOP: THE WIND BENDS YOUR SHOTS": "옥상: 바람이 슛을 휘게 한다",
+  "BEACH: SAND SLOWS YOUR DASH": "해변: 모래 때문에 대시가 느리다", "ICE RINK: YOU SLIDE. SO DOES HE": "빙판: 나도 미끄럽고 쟤도 미끄럽다",
+  "THE WIND TURNS": "바람 방향이 바뀌었다", "75 SECONDS": "75초 경기", "FIRST TO 11": "11점 먼저 내기", "MAKE IT TAKE IT": "넣으면 계속 공격",
+  "TO 11": "11점 승부", "KEEP IT": "넣으면 계속 공격", "SNIPER ROUND": "저격 라운드", "ONLY 3S COUNT": "3점슛만 인정",
+  "ONLY THREES COUNT!": "지금은 3점슛만 점수!", "NO COUNT": "무효!", "CHAOS HELPS THE UNDERDOG": "카오스는 지고 있는 쪽 편", "+SP": "+SP",
+  "GET AWAY!": "피해!", "JUMP!": "점프!", "DASH!": "대시!", "FIZZLED": "불발", "READ YOU": "다 읽혔어",
+  "HE BACKS OFF YOUR DRIVE. SHOOT OVER HIM": "돌파만 하니 물러선다. 이번엔 쏴라", "HE CROWDS YOUR SHOT. FAKE IT, THEN GO": "슛만 쏘니 붙는다. 페이크 후 돌파",
+  "STYLE": "스타일 점수", "BEST COMBO": "최고 콤보", "SNATCH": "가로채기", "ANKLES": "발목", "3PT": "3점", "BUCKET": "득점",
+  "6 BALLERS  4 COURTS  6 KINDS OF CHAOS": "선수 6명 · 코트 4곳 · 카오스 6종",
   "PIXEL HOOPS  *  1 ON 1 STREETBALL  *  NO REFS  NO RULES  *  ": "PIXEL HOOPS  *  1대1 길거리 농구  *  심판 없음 반칙 없음  *  ",
 };
 const KO_PATTERNS = [
   [/^(\w+) WINS!$/, (m) => `${m[1]} 승리!`],
   [/^EARLY (\d+)MS$/, (m) => `빠름 ${m[1]}ms`],
+  [/^COMBO x(\d+)$/, (m) => `콤보 x${m[1]}`],
   [/^LATE (\d+)MS$/, (m) => `늦음 ${m[1]}ms`],
   [/^(\w+) TAKES IT$/, (m) => `${m[1]} 승!`],
   [/^(\w+) SCORES!  \*  $/, (m) => `${m[1]} 득점!  *  `],
   [/^!! (.+) !!  $/, (m) => `!! ${KO[m[1]] ?? m[1]} !!  `],
 ];
+const koOr = (s) => (lang === "ko" ? KO[s] ?? s : s);
 const hasHangul = (s) => /[^\x00-\x7f]/.test(s);
 function tr(s) {
   if (KO[s]) return KO[s];
@@ -2075,9 +2223,23 @@ const lerpC = (a, b, k) => {
   const ch = (s) => Math.round(((a >>> s) & 255) * (1 - k) + ((b >>> s) & 255) * k);
   return ch(0) | (ch(8) << 8) | (ch(16) << 16) | (255 << 24);
 };
-function buildCourt() {
-  const p = painterFor(world); p.place(0, 0);
-  clearFrame(world);
+const COURTS = ["arena", "roof", "beach", "ice"];
+const COURT_INFO = {
+  arena: { name: "ARENA", line: "THE ARENA: NO SURPRISES" },
+  roof: { name: "ROOFTOP", line: "ROOFTOP: THE WIND BENDS YOUR SHOTS" },
+  beach: { name: "BEACH", line: "BEACH: SAND SLOWS YOUR DASH" },
+  ice: { name: "ICE RINK", line: "ICE RINK: YOU SLIDE. SO DOES HE" },
+};
+const RULES = ["classic", "to11", "keep"];
+const RULE_INFO = { classic: "75 SECONDS", to11: "FIRST TO 11", keep: "MAKE IT TAKE IT" };
+const COURT_LOOK = {
+  arena: { paint: "#8a2f5c", paintHi: "#b04a7a", circle: "#7a2a5a", line: null },
+  ice: { paint: "#2a5ab0", paintHi: "#4a7ad0", circle: "#3a6ac0", line: "#d0303a" },
+  roof: { paint: "#2a4a8a", paintHi: "#3a62a8", circle: "#24407a", line: "#f0f0e8" },
+  beach: { paint: "#d0784a", paintHi: "#e08a5a", circle: "#c0683a", line: "#fff8e8" },
+};
+// the arena (and the ice rink, which is the arena gone cold)
+function arenaBack(p, ice) {
   // the roof and its truss
   for (let y = 0; y < ROOF; y++) p.rect(0, y, W, 1, lerpC(hex("#07060c"), hex("#110e1c"), y / ROOF));
   p.rect(0, 5, W, 2, hex("#262036")); p.rect(0, 13, W, 2, hex("#262036"));
@@ -2093,18 +2255,76 @@ function buildCourt() {
   // the stands: tiers stepping up and away, darker the farther back
   for (let y = ROOF; y < STANDS; y++) {
     const r = Math.floor((y - ROOF) / 13), inTier = (y - ROOF) % 13;
-    const base = lerpC(hex("#100d1a"), hex("#221b34"), (y - ROOF) / (STANDS - ROOF));
-    p.rect(0, y, W, 1, inTier < 2 ? lerpC(base, hex("#3a3152"), 0.6) : base);
+    const base = lerpC(hex(ice ? "#0c1220" : "#100d1a"), hex(ice ? "#1c2c44" : "#221b34"), (y - ROOF) / (STANDS - ROOF));
+    p.rect(0, y, W, 1, inTier < 2 ? lerpC(base, hex(ice ? "#34506e" : "#3a3152"), 0.6) : base);
     if (inTier === 12) p.rect(0, y, W, 1, hex("#0a0812"));
   }
   for (let x = 0; x < W; x += 64) veil(p, x + 30, ROOF, 4, STANDS - ROOF, hex("#0c0a14"), 0.6);   // the aisles
-  // the wall under the stands: a rail, the LED ribbon, padded panels
+
   p.rect(0, STANDS, W, 2, hex("#5a5070")); p.rect(0, STANDS + 2, W, 2, hex("#14101f"));
-  p.rect(0, RIBBON, W, 11, hex("#05040a")); p.rect(0, RIBBON - 1, W, 1, hex("#2a2440")); p.rect(0, RIBBON + 11, W, 1, hex("#2a2440"));
-  for (let y = RIBBON + 12; y < FLOOR; y++) p.rect(0, y, W, 1, lerpC(hex("#1e1830"), hex("#2a2240"), (y - RIBBON) / (FLOOR - RIBBON)));
-  for (let x = 20; x < W; x += 40) p.rect(x, RIBBON + 12, 1, FLOOR - RIBBON - 12, hex("#151124"));
-  p.rect(0, FLOOR - 2, W, 2, hex("#100c1a"));
-  // the floor: planks with staggered joints, lighter far away, a gloss line where it meets the wall
+  if (ice) {
+    // the rink boards: white, a blue band, a yellow kick plate
+    for (let y = RIBBON + 12; y < FLOOR; y++) p.rect(0, y, W, 1, lerpC(hex("#e2ecf4"), hex("#b8cadc"), (y - RIBBON - 12) / (FLOOR - RIBBON - 12)));
+    p.rect(0, RIBBON + 12, W, 2, hex("#2a5ab0")); p.rect(0, FLOOR - 5, W, 3, hex("#f0c83c"));
+    for (let x = 30; x < W; x += 60) p.rect(x, RIBBON + 14, 1, FLOOR - RIBBON - 19, hex("#a8bccf"));
+  } else {
+    for (let y = RIBBON + 12; y < FLOOR; y++) p.rect(0, y, W, 1, lerpC(hex("#1e1830"), hex("#2a2240"), (y - RIBBON) / (FLOOR - RIBBON)));
+    for (let x = 20; x < W; x += 40) p.rect(x, RIBBON + 12, 1, FLOOR - RIBBON - 12, hex("#151124"));
+  }
+}
+// a rooftop at dusk: the city behind, a water tower, string lights, a brick parapet
+function roofBack(p, r) {
+  for (let y = 0; y < STANDS; y++) { const k = y / STANDS; p.rect(0, y, W, 1, k < 0.55 ? lerpC(hex("#140c2a"), hex("#5a2456"), k / 0.55) : lerpC(hex("#5a2456"), hex("#f07a3a"), (k - 0.55) / 0.45)); }
+  for (let i = 0; i < 30; i++) p.px(Math.floor(r() * W), Math.floor(r() * 40), r() < 0.3 ? WHITE : hex("#8a80b0"));
+  p.disc(236, 104, 18, hex("#ffb45a"), 1); p.glow(236, 104, 46, hex("#ff9040"), 0.5);
+  for (const [far, col] of [[true, "#3a1c44"], [false, "#160c22"]]) {
+    for (let x = -4; x < W;) {
+      const w = 10 + Math.floor(r() * 22), h = (far ? 22 : 12) + Math.floor(r() * (far ? 40 : 34)), top = STANDS - h - (far ? 8 : 0);
+      p.rect(x, top, w, STANDS - top, hex(col));
+      if (!far) for (let wy = top + 3; wy < STANDS - 3; wy += 4) for (let wx = x + 2; wx < x + w - 2; wx += 4) if (r() < 0.28) p.rect(wx, wy, 2, 2, r() < 0.8 ? hex("#ffd27a") : hex("#8cf0ff"));
+      if (!far && r() < 0.3) { p.rect(x + (w >> 1), top - 6, 1, 6, hex(col)); p.px(x + (w >> 1), top - 7, C.red); }
+      x += w + (far ? 0 : Math.floor(r() * 3));
+    }
+  }
+  // the water tower on the next roof
+  p.rect(40, 64, 2, 32, hex("#0e0818")); p.rect(56, 64, 2, 32, hex("#0e0818")); p.line(41, 70, 57, 88, hex("#0e0818")); p.line(57, 70, 41, 88, hex("#0e0818"));
+  p.rect(36, 48, 26, 18, hex("#2a1830")); p.rect(36, 53, 26, 1, hex("#1a0e20")); p.rect(36, 60, 26, 1, hex("#1a0e20"));
+  p.poly([[34, 48], [49, 39], [64, 48]], hex("#1e1024"));
+  // string lights, sagging between poles
+  for (let x = 0; x < W; x++) {
+    const y = 30 + Math.round(Math.sin(((x % 80) / 80) * Math.PI) * 8);
+    p.px(x, y, hex("#2a2030"));
+    if (x % 10 === 5) { const lc = hex(["#ffd27a", "#ff86e6", "#8cf0ff", "#7cff9a"][Math.floor(x / 10) % 4]); p.rect(x - 1, y + 1, 2, 2, lc); p.glow(x, y + 2, 5, lc, 0.45); }
+  }
+  p.rect(0, STANDS, W, 2, hex("#8a6a5a")); p.rect(0, STANDS + 2, W, 2, hex("#2a1a1a"));
+  for (let y = RIBBON + 12; y < FLOOR; y++) p.rect(0, y, W, 1, (y - RIBBON - 12) % 4 === 3 ? hex("#3a2020") : hex("#6a3a30"));
+  for (let y = RIBBON + 12; y < FLOOR; y += 4) for (let x = (Math.floor(y / 4) % 2) * 4; x < W; x += 8) p.rect(x, y, 1, 3, hex("#3a2020"));
+}
+// a beach: the sun, the sea, two palms, a boardwalk
+function beachBack(p, r) {
+  for (let y = 0; y < 92; y++) p.rect(0, y, W, 1, lerpC(hex("#3a8ee8"), hex("#bde6ff"), y / 92));
+  p.disc(62, 30, 11, hex("#fff6c0"), 1); p.glow(62, 30, 34, hex("#fff0a0"), 0.6);
+  for (let i = 0; i < 5; i++) { const cx = Math.floor(r() * 280), cy = 10 + Math.floor(r() * 50); p.rect(cx, cy, 24, 4, WHITE); p.rect(cx + 4, cy - 3, 14, 3, WHITE); p.rect(cx + 2, cy + 4, 20, 1, hex("#d8eefc")); }
+  for (let y = 92; y < STANDS; y++) p.rect(0, y, W, 1, lerpC(hex("#1a6ab0"), hex("#3ab0e0"), (y - 92) / (STANDS - 92)));
+  for (let i = 0; i < 26; i++) p.rect(Math.floor(r() * W), 94 + Math.floor(r() * 18), 4 + Math.floor(r() * 6), 1, hex("#cfefff"));
+  // a sailboat on the horizon
+  p.rect(200, 89, 14, 2, hex("#6a3a20")); p.tri(206, 76, 206, 88, 214, 88, WHITE); p.rect(206, 76, 1, 13, hex("#6a3a20"));
+  for (const [px, d] of [[16, 1], [304, -1]]) {
+    let tx = px, ty = STANDS;
+    for (let i = 0; i < 62; i++) { tx = px + Math.round(Math.sin((i / 62) * 1.4) * 9 * d); ty = STANDS + 4 - i; p.rect(tx - 1, ty, 3, 1, i % 5 ? hex("#8a5a32") : hex("#5a3a1e")); }
+    for (let a = 0; a < 7; a++) {
+      const ang = Math.PI * (1.05 + a * 0.15), lx = tx + Math.cos(ang) * 20 * (a % 2 ? 1 : 0.8), ly = ty + Math.sin(ang) * 7 + 9;
+      p.line(tx, ty, Math.round(lx), Math.round(ly), hex("#2a8a3a")); p.line(tx, ty + 1, Math.round(lx), Math.round(ly) + 1, hex("#1e6a2a"));
+      p.line(tx, ty, Math.round(tx * 2 - lx), Math.round(ly), hex("#2a8a3a"));
+    }
+    p.disc(tx - 1, ty + 3, 2, hex("#5a3a1e"), 1); p.disc(tx + 2, ty + 3, 2, hex("#5a3a1e"), 1);
+  }
+  p.rect(0, STANDS, W, 2, hex("#d8b080")); p.rect(0, STANDS + 2, W, 2, hex("#5a3a1e"));
+  for (let x = 0; x < W; x += 6) p.rect(x, RIBBON + 12, 6, FLOOR - RIBBON - 12, (x / 6) % 2 ? hex("#a8743e") : hex("#946634"));
+  for (let x = 0; x < W; x += 6) p.rect(x, RIBBON + 12, 1, FLOOR - RIBBON - 12, hex("#5a3a1e"));
+}
+function floorFor(p, r) {
+  if (court === "arena") {
   const planks = [hex("#c47e44"), hex("#b8743a"), hex("#cc8a4e"), hex("#b06c34")];
   for (let y = FLOOR; y < H; y++) {
     const row = Math.floor((y - FLOOR) / 3), c = planks[row % 4];
@@ -2113,21 +2333,44 @@ function buildCourt() {
   }
   for (let row = 0; row * 3 < H - FLOOR; row++) for (let x = (row * 13) % 37; x < W; x += 37) veil(p, x, FLOOR + row * 3, 1, 2, hex("#8a4f22"), 0.7);
   veil(p, 0, FLOOR + 1, W, 1, hex("#f0b878"), 0.45);
+    return;
+  }
+  const rows = { ice: ["#e4f4fc", "#a8d0e8"], roof: ["#3a7a62", "#24503f"], beach: ["#f2d79a", "#d8b070"] }[court];
+  for (let y = FLOOR; y < H; y++) p.rect(0, y, W, 1, lerpC(hex(rows[0]), hex(rows[1]), Math.min(1, (y - FLOOR) / 30)));
+  if (court === "ice") {
+    for (const x of LAMPS) veil(p, x - 6, FLOOR + 1, 12, H - FLOOR, WHITE, 0.35);                 // the lamps in the ice
+    for (let i = 0; i < 40; i++) veil(p, Math.floor(r() * W), FLOOR + 2 + Math.floor(r() * 28), 6 + Math.floor(r() * 20), 1, WHITE, 0.6);   // skate marks
+    veil(p, 0, FLOOR + 1, W, 1, WHITE, 0.6);
+  }
+  if (court === "roof") for (let i = 0; i < 10; i++) { const x = Math.floor(r() * W), y = FLOOR + 3 + Math.floor(r() * 25); p.line(x, y, x + 4 + Math.floor(r() * 8), y + Math.floor(r() * 3) - 1, hex("#1e4234")); }
+  if (court === "beach") for (let i = 0; i < 120; i++) p.px(Math.floor(r() * W), FLOOR + 2 + Math.floor(r() * 28), r() < 0.5 ? hex("#c89a5a") : hex("#fff0c8"));
+}
+function buildCourt() {
+  const p = painterFor(world); p.place(0, 0);
+  clearFrame(world);
+  crowd = []; starsBg = [];
+  let q = 99;
+  const rr = () => (q = (q * 16807) % 2147483647) / 2147483647;                   // the scenery has its own dice, apart from the fans
+  if (court === "roof") roofBack(p, rr); else if (court === "beach") beachBack(p, rr); else arenaBack(p, court === "ice");
+  // the LED ribbon's housing, on every court
+  p.rect(0, RIBBON, W, 11, hex("#05040a")); p.rect(0, RIBBON - 1, W, 1, hex("#2a2440")); p.rect(0, RIBBON + 11, W, 1, hex("#2a2440"));
+  p.rect(0, FLOOR - 2, W, 2, hex("#100c1a"));
+  floorFor(p, rr);
   // the paint under each hoop, the free throw line, the three point mark
+  const look = COURT_LOOK[court], LINE = look.line ? hex(look.line) : C.line;
   for (const h of HOOPS) {
     const ft = h.cx + h.dir * 46, x0 = Math.min(h.board, ft), x1 = Math.max(h.board, ft), t3 = h.cx + h.dir * THREE;
-    veil(p, x0, FLOOR + 1, x1 - x0, H - FLOOR - 1, hex("#8a2f5c"), 0.55);
-    veil(p, x0, FLOOR + 2, x1 - x0, 1, hex("#b04a7a"), 0.5);
-    p.rect(ft - 1, FLOOR + 1, 2, H - FLOOR, C.line);
-    p.ellipse(ft, FLOOR + 14, 10, 4, hex("#d8b8a8"));
-    p.rect(t3 - 1, FLOOR + 1, 2, H - FLOOR, C.line);
-    p.text("3", t3 + h.dir * 5, FLOOR + 8, C.line, { align: "center" });
-    p.rect(h.dir > 0 ? 0 : W - 3, FLOOR + 1, 3, H - FLOOR, C.line);           // the baseline
+    veil(p, x0, FLOOR + 1, x1 - x0, H - FLOOR - 1, hex(look.paint), 0.55);
+    veil(p, x0, FLOOR + 2, x1 - x0, 1, hex(look.paintHi), 0.5);
+    p.rect(ft - 1, FLOOR + 1, 2, H - FLOOR, LINE);
+    p.ellipse(ft, FLOOR + 14, 10, 4, lerpC(LINE, hex(look.paint), 0.35));
+    p.rect(t3 - 1, FLOOR + 1, 2, H - FLOOR, LINE);
+    p.text("3", t3 + h.dir * 5, FLOOR + 8, LINE, { align: "center" });
+    p.rect(h.dir > 0 ? 0 : W - 3, FLOOR + 1, 3, H - FLOOR, LINE);
   }
-  p.rect(0, FLOOR, W, 1, C.line);
-  // half court: the line, the circle and the logo in the middle
-  p.rect(159, FLOOR + 1, 2, H - FLOOR, C.line);
-  p.ellipse(160, FLOOR + 15, 31, 8, C.line); p.ellipse(160, FLOOR + 15, 29, 7, hex("#7a2a5a"));
+  p.rect(0, FLOOR, W, 1, LINE);
+  p.rect(159, FLOOR + 1, 2, H - FLOOR, LINE);
+  p.ellipse(160, FLOOR + 15, 31, 8, LINE); p.ellipse(160, FLOOR + 15, 29, 7, hex(look.circle));
   p.disc(160, FLOOR + 14, 5, C.ball, 1); p.line(155, FLOOR + 14, 165, FLOOR + 14, C.ballDark); p.line(160, FLOOR + 9, 160, FLOOR + 19, C.ballDark);
   p.text("PIXEL", 144, FLOOR + 12, C.gold, { align: "center" }); p.text("HOOPS", 177, FLOOR + 12, C.gold, { align: "center" });
   // the stanchions: padded base on the floor, a pole and an arm out to the board
@@ -2139,13 +2382,14 @@ function buildCourt() {
     p.line(px, h.y - 9, h.board, h.y - 18, hex("#6a6080")); p.line(px, h.y - 3, h.board, h.y - 6, hex("#6a6080"));
   }
   courtColor = world.color.slice(); courtLight = world.light.slice();
-  // the fans: a seat for each, some empty; shirts are filled in at draw time from the two players' colors
+  // the fans: a full house in the arena and the rink, a few on the roof and on the beach
   let s = 7;
   const r01 = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  const keep = court === "roof" ? (row) => row >= 5 && r01() < 0.55 : court === "beach" ? (row) => row >= 4 && r01() < 0.45 : () => true;
   const skins = ["#f0c8a8", "#d79a6a", "#8d5a3b", "#6b4a3a", "#e0b090", "#b47a52"].map(hex);
   const hairs = ["#1c1a24", "#3a2418", "#6b4a1a", "#c8a050", "#e6e1ee", "#a8201e"].map(hex);
   for (let row = 0; row < 7; row++) for (let x = 3 + (row % 2) * 4; x < W; x += 8) {
-    if ((x + 34) % 64 < 6 || r01() < 0.12) continue;                            // aisles and empty seats
+    if ((x + 34) % 64 < 6 || r01() < 0.12 || !keep(row)) continue;                            // aisles and empty seats
     crowd.push({ x: x + Math.floor(r01() * 2), y: ROOF + 4 + row * 13, row, skin: skins[Math.floor(r01() * skins.length)], hair: hairs[Math.floor(r01() * hairs.length)],
       neutral: C.crowd[Math.floor(r01() * C.crowd.length)], fan: r01() < 0.55, ph: r01() * 6.28, sign: r01() < 0.05, phone: r01() < 0.08, tall: r01() < 0.3 });
   }
@@ -2163,6 +2407,11 @@ function drawBackdrop(p) {
   }
   if (k === "storm") { veil(p, 0, 0, W, FLOOR, hex("#05040a"), 0.55); }
   if (k === "golden") { veil(p, 0, FLOOR, W, H - FLOOR, C.gold, 0.18); }
+  if (court === "roof") {
+    const fx = 304, top = 74, len = 4 + Math.round(Math.abs(wind) * 12), d = wind < 0 ? -1 : 1;
+    p.rect(fx, top, 1, STANDS - top, hex("#2a2030"));
+    for (let i = 0; i < len; i++) p.rect(fx + d * (i + 1), top + 1 + Math.round(Math.sin(worldT * 10 - i * 0.6) * (0.5 + i * 0.12)), 1, 4, i % 4 < 2 ? C.red : WHITE);
+  }
   drawRibbon(p);
 }
 
@@ -2218,7 +2467,7 @@ function drawHoopBack(p) {
     // a shot clock on top of the board, counting the game down in red
     const sx = h.board - 4, sy = h.y - 38;
     p.rect(sx - 1, sy - 1, 11, 9, OUTLINE); p.rect(sx, sy, 9, 7, hex("#14101f"));
-    p.text(String(Math.min(99, Math.ceil(clock))).padStart(2, "0"), sx + 5, sy + 1, clock <= 10 ? C.red : hex("#ff6a4a"), { align: "center" });
+    p.text(rule === "to11" ? "11" : String(Math.min(99, Math.ceil(clock))).padStart(2, "0"), sx + 5, sy + 1, clock <= 10 ? C.red : hex("#ff6a4a"), { align: "center" });
     p.glow(sx + 4, sy + 3, 8, C.red, 0.3);
   }
 }
@@ -2446,18 +2695,49 @@ function drawMeter(p, pl) {
 // "GO!" arrow says dash past him now.
 const goOpen = (a) => {
   const d = other(a), toward = Math.sign(hoopOf(a).cx - a.x) || 1;
-  return ball.owner === a && a.onGround && !a.shooting && a.gather <= 0 && a.stam >= DASH_COST(a) && d.ch.name !== "TANK"
+  return ball.owner === a && a.onGround && !a.shooting && a.gather <= 0 && !a.charge && a.stam >= DASH_COST(a) && d.ch.name !== "TANK"
     && Math.abs(d.x - a.x) < 60 && committed(d, toward) && d.fallen <= 0;
 };
 const inReach = (p, o) => Math.abs(o.x - p.x) <= (p.fire ? 30 : 24) + (assist(p) ? 6 : 0) && Math.abs(o.y - p.y) <= 24;
-const cueWas = { steal: false, go: false };
+// a special winding up: the caster gathers it, and the floor shows where it will land
+function drawCharge(p) {
+  for (const c of players) {
+    if (!c.charge) continue;
+    const k = 1 - c.charge.t / c.charge.dur, o = other(c), n = c.ch.name, blink = Math.floor(worldT * 16) % 2, cx = Math.round(c.x);
+    p.ring(cx, Math.round(c.y - 22), Math.round(30 - k * 22), 1, c.col);
+    p.glow(c.x, c.y - 22, 18 + k * 10, c.col, 0.5 + k * 0.4);
+    const zc = blink ? C.red : hex("#ff8a3a");
+    if (n === "BLAZE") p.ellipse(cx, FLOOR + 1, 46, 3, zc, 0.7);
+    if (n === "FROST") { const len = Math.round(230 * k); p.rect(c.facing > 0 ? cx : cx - len, FLOOR, len, 2, blink ? C.ice : WHITE); }
+    if (n === "VOLT") { const tx = ball.owner === c ? c.x : ball.owner === o ? o.x : ball.x; p.ellipse(Math.round(tx), FLOOR + 1, ball.owner === c ? 40 : 12, 3, blink ? C.volt : WHITE, 0.8); }
+    if (n === "TANK") { const r = Math.round(20 + k * 140); p.rect(cx - r, FLOOR, r * 2, 1, zc); for (let i = 1; i < 5; i++) { p.px(cx - Math.round(r * i / 5), FLOOR + 1, zc); p.px(cx + Math.round(r * i / 5), FLOOR + 1, zc); } }
+    if (n === "SHADE") p.ring(Math.round(ball.x), Math.round(ball.y), Math.round(18 - k * 12), 1, hex("#9a7cff"));
+    if (n === "GRAMPS" && ball.owner === c) p.ring(Math.round(o.x), Math.round(o.y - 22), Math.round(28 - k * 18), 1, WHITE);
+  }
+}
+// what a human player has to do right now to get out of a special: from the wind-up, the aftershock, flying dentures
+function dangerFor(me) {
+  const o = other(me);
+  if (o.charge) { const how = dodgeHow(o); return how && { how, left: o.charge.t / o.charge.dur }; }
+  if (o.quakeT > 0 && o.quakeT < 0.4 && me.onGround) return { how: "JUMP!", left: o.quakeT / 0.4 };
+  const t = teeth.find((t) => t.from === o && (me.x - t.x) * Math.sign(t.vx) > 0 && Math.abs(me.x - t.x) < 70);
+  return t ? { how: "JUMP!", left: Math.abs(me.x - t.x) / 70 } : null;
+}
+const cueWas = { steal: false, go: false, danger: false };
 function drawCues(p) {
   if (demo || tut?.done > 0) return;
   const blink = Math.floor(worldT * 10) % 2;
-  let steal = false, go = false;
+  let steal = false, go = false, danger = false;
   for (const me of players) {
     if (me.tag === "CPU") continue;
-    const o = other(me);
+    const o = other(me), d = dangerFor(me);
+    if (d) {
+      // a special is coming: what to do, over your head, and a ring closing in on you as it gets close
+      danger = true;
+      p.text(d.how, Math.round(me.x), Math.round(me.y - 62) - (blink ? 1 : 0), blink ? C.red : WHITE, { font: "big", align: "center", outline: INK });
+      p.ring(Math.round(me.x), Math.round(me.y - 22), Math.round(8 + d.left * 26), 1, C.red);
+      continue;
+    }
     if (ball.owner === o && me.fallen <= 0) {
       const bx = Math.round(ball.x), by = Math.round(ball.y);
       if (stealOpen(me, o)) {
@@ -2490,8 +2770,8 @@ function drawCues(p) {
     for (let s = 0; s < 3; s++) { const ang = worldT * 9 + s * 2.09; p.rect(Math.round(d.x + Math.cos(ang) * 7), Math.round(hy + Math.sin(ang) * 2), 2, 2, s === 1 ? WHITE : C.gold); }
   }
   // a chime when an opening appears, so you can hear it as well as see it
-  if (steal && !cueWas.steal) sfx.cue(); if (go && !cueWas.go) sfx.cue(true);
-  cueWas.steal = steal; cueWas.go = go;
+  if (steal && !cueWas.steal) sfx.cue(); if (go && !cueWas.go) sfx.cue(true); if (danger && !cueWas.danger) sfx.warn();
+  cueWas.steal = steal; cueWas.go = go; cueWas.danger = danger;
 }
 
 function drawBall(p) {
@@ -2511,7 +2791,7 @@ function drawWorld() {
   const calm = hype <= 0.3 && chaos?.kind !== "moon" && phase !== "scored" && players.length;
   let p;
   if (calm) {
-    const key = players.map((q) => q.col).join("|");
+    const key = court + players.map((q) => q.col).join("|");
     if (crowdBake.key !== key) {
       world.color.set(courtColor); world.light.set(courtLight);
       p = painterFor(world); p.place(0, 0); drawCrowd(p);
@@ -2553,6 +2833,7 @@ function drawWorld() {
   drawHoopFront(p);
   for (const q of parts) p.rect(Math.round(q.x), Math.round(q.y), q.s, q.s, q.c, Math.min(1, (q.life / q.max) * 1.6));
   drawPfx(p);
+  drawCharge(p);
   drawCues(p);
   for (const pl of players) {
     drawMeter(p, pl);
@@ -2597,6 +2878,7 @@ function drawIcon(p, kind, x, y) {
   if (kind === "banana") { p.rect(x - 6, y + 1, 12, 3, C.banana); p.rect(x - 7, y - 2, 3, 3, C.banana); p.rect(x + 5, y - 3, 2, 3, C.bananaTip); }
   if (kind === "bighead") { p.rect(x - 7, y - 7, 14, 13, CHARS[0].skin); p.rect(x - 7, y - 8, 14, 3, INK); p.rect(x + 2, y - 2, 2, 2, INK); p.rect(x - 4, y - 2, 2, 2, INK); p.rect(x - 3, y + 2, 6, 1, INK); }
   if (kind === "golden") { p.disc(x, y, 7, C.gold, 1); p.line(x - 6, y, x + 6, y, C.goldDark); p.line(x, y - 6, x, y + 6, C.goldDark); p.glow(x, y, 14, C.gold, 0.6); }
+  if (kind === "sniper") { p.ring(x, y, 7, 1, hex("#7cff9a")); p.ring(x, y, 3, 1, hex("#7cff9a")); p.rect(x - 10, y, 6, 1, hex("#7cff9a")); p.rect(x + 5, y, 6, 1, hex("#7cff9a")); p.rect(x, y - 10, 1, 6, hex("#7cff9a")); p.rect(x, y + 5, 1, 6, hex("#7cff9a")); }
   if (kind === "storm") { p.poly([[x + 2, y - 8], [x - 5, y + 1], [x, y + 1], [x - 3, y + 9], [x + 6, y - 2], [x + 1, y - 2]], C.volt); p.glow(x, y, 12, hex("#8cf0ff"), 0.6); }
 }
 
@@ -2631,6 +2913,16 @@ function drawHowTo(p) {
 function drawSelect(p) {
   veil(p, 0, 0, W, H, INK, 0.82);
   p.text("CHOOSE YOUR BALLER", 160, 5, C.gold, { font: "big", align: "center", outline: INK });
+  // the court and the rules for the match, in the top corners: tap (or C / R) to change
+  chips = [];
+  const cv = COURTS.includes(settings.court) ? COURT_INFO[settings.court].name : "RANDOM";
+  [["C", koOr("COURT") + " " + koOr(cv), cycleCourt], ["R", koOr(RULE_INFO[settings.rule] ?? RULE_INFO.classic), cycleRule]].forEach(([key, text, act], i) => {
+    const w = 80, x = i ? W - 3 - w : 3, b = { x, y: 2, w, h: 10, act };
+    chips.push(b);
+    const hot = inside(b);
+    p.rect(x, 2, w, 10, hot ? hex("#3a3550") : C.panel); frameBox(p, x, 2, w, 10, hot ? WHITE : C.gold);
+    p.text((isTouch ? "" : key + " ") + text, x + w / 2, 5, hot ? WHITE : C.gold, { align: "center" });
+  });
   cards = [];
   const cw = 46, gap = 4, x0 = (W - (CHARS.length * cw + (CHARS.length - 1) * gap)) / 2, y0 = 15, chh = 56;
   CHARS.forEach((ch, i) => {
@@ -2782,7 +3074,7 @@ function drawTouch(p) {
   // pause
   veil(p, 229, 3, 15, 12, INK, 0.7); frameBox(p, 229, 3, 15, 12, dim); p.rect(233, 6, 2, 6, WHITE); p.rect(238, 6, 2, 6, WHITE);
   // a reminder at the start of a game
-  if (!tut && clock > GAME_TIME - 6 && !overtime) p.text("LEFT THUMB: MOVE   RIGHT THUMB: BIG BUTTON DOES IT ALL, DASH NEXT TO IT", 160, 104, WHITE, { align: "center", outline: INK, a: Math.min(1, (clock - (GAME_TIME - 6)) / 1.5) });
+  if (!tut && elapsed < 6 && !overtime) p.text("LEFT THUMB: MOVE   RIGHT THUMB: BIG BUTTON DOES IT ALL, DASH NEXT TO IT", 160, 104, WHITE, { align: "center", outline: INK, a: Math.min(1, (6 - elapsed) / 1.5) });
 }
 
 // each top corner holds a small portrait; hovering it (or pinning it with a click / H) opens the passive and special card
@@ -2813,7 +3105,7 @@ function drawHud() {
   clearFrame(hud);
   drawFxList(fxHud, hud, "back");
   const p = painterFor(hud); p.place(0, 0);
-  buttons = []; infoBoxes = []; if (screen !== "select") cards = [];
+  buttons = []; infoBoxes = []; if (screen !== "select") { cards = []; chips = []; }
   if (screen === "select") { drawSelect(p); return; }
   if (screen === "settings") { drawSettings(p); mouse.moved = false; return; }
   if (screen === "menu" || screen === "howto") {
@@ -2822,7 +3114,7 @@ function drawHud() {
     p.text("PIXEL HOOPS", 160, 30, C.gold, { font: "big", scale: 3, align: "center", outline: INK, shadow: hex("#7a3b5c") });
     p.text("1 ON 1 STREETBALL MAYHEM", 160, 58, WHITE, { align: "center", outline: INK });
     drawButtons(p, 110, 78, 100);
-    p.text("6 BALLERS  6 SPECIALS  5 KINDS OF CHAOS", 160, 160, C.line, { align: "center", outline: INK });
+    p.text("6 BALLERS  4 COURTS  6 KINDS OF CHAOS", 160, 160, C.line, { align: "center", outline: INK });
     p.text("EFFECTS BY PIXELFX", 6, 172, C.dim);
     p.text(muted ? "M SOUND OFF" : "M SOUND ON", 314, 172, C.dim, { align: "right" });
     return;
@@ -2833,7 +3125,8 @@ function drawHud() {
   p.text(b.ch.name, 216, 5, b.col, { align: "right" });
   p.text(String(a.score), 124, 12, a.col, { font: "big", align: "center", outline: INK });
   p.text(String(b.score), 196, 12, b.col, { font: "big", align: "center", outline: INK });
-  if (tut) p.text("PRACTICE", 160, 7, C.gold, { align: "center" }); else p.text(overtime ? "OT" : `${mm}:${ss}`, 160, 6, clock <= 10 && !overtime ? C.gold : WHITE, { font: "big", align: "center" });
+  if (rule === "keep" && !tut) p.text("KEEP IT", 160, 16, C.dim, { align: "center" });
+  if (tut) p.text("PRACTICE", 160, 7, C.gold, { align: "center" }); else if (rule === "to11") p.text("TO 11", 160, 6, C.gold, { font: "big", align: "center" }); else p.text(overtime ? "OT" : `${mm}:${ss}`, 160, 6, clock <= 10 && !overtime ? C.gold : WHITE, { font: "big", align: "center" });
   // special meters
   for (const pl of players) {
     const x = pl.i ? 162 : 100, full = pl.sp >= 1, blink = Math.floor(worldT * 6) % 2;
@@ -2848,6 +3141,13 @@ function drawHud() {
   }
   infoBoxes = [];
   for (const pl of players) drawInfo(p, pl);
+  // combos, under each portrait: how long the chain is and what it was
+  for (const pl of players) if (pl.comboShow && !pinned[pl.i]) {
+    const s = pl.comboShow, right = pl.i === 1, x = right ? W - 4 : 4, a = Math.min(1, s.t * 3), al = right ? "right" : "left";
+    p.text(`COMBO x${s.n}`, x, 35, C.gold, { font: "big", align: al, outline: INK, a });
+    p.text(s.names.map(koOr).join(" > "), x, 47, WHITE, { align: al, outline: INK, a });
+  }
+  if (court === "roof" && !tut && Math.abs(wind) > 0.1) p.text(koOr("WIND") + " " + (wind > 0 ? ">" : "<").repeat(Math.max(1, Math.round(Math.abs(wind) * 3))), 160, 31, hex("#e8d8f0"), { align: "center", outline: INK });
   drawChaosActive(p);
   drawTouch(p);
   drawTutorial(p);
@@ -2880,7 +3180,11 @@ function drawHud() {
     p.text(win ? `${win.ch.name} WINS!` : "DRAW", 160, 46, win ? win.col : WHITE, { font: "big", scale: 2, align: "center", outline: INK });
     p.text(win ? `${win.tag} TAKES IT` : "", 160, 62, C.dim, { align: "center" });
     p.text(`${a.score} - ${b.score}`, 160, LH() > 7 ? 72 : 70, WHITE, { font: "big", align: "center" });
-    if (stateT > 1.2) drawButtons(p, 110, 82, 100, 15);
+    // style: the combos each side strung together
+    p.text("STYLE", 160, 83, C.dim, { align: "center" }); p.text(String(a.stylePts), 112, 83, a.col, { align: "center" }); p.text(String(b.stylePts), 208, 83, b.col, { align: "center" });
+    p.text("BEST COMBO", 160, 91, C.dim, { align: "center" });
+    p.text(a.bestCombo >= 2 ? "x" + a.bestCombo : "-", 112, 91, a.col, { align: "center" }); p.text(b.bestCombo >= 2 ? "x" + b.bestCombo : "-", 208, 91, b.col, { align: "center" });
+    if (stateT > 1.2) drawButtons(p, 110, 100, 100, 14);
   }
   drawFxList(fxHud, hud, "front");
 }
@@ -2903,7 +3207,6 @@ function render() {
   if (koQ.length) drawKo(koQ.filter((t) => t.hud), 0, 0, 1);
 }
 
-buildCourt();
 toMenu();
 window.hoops = {
   get players() { return players; }, get ball() { return ball; }, get phase() { return phase; }, get screen() { return screen; },
@@ -2911,7 +3214,7 @@ window.hoops = {
   set clock(v) { clock = v; }, setPossession, step, startGame, startChaos, beginChaos, setScreen, endGame, render, startSelect, trySpecial, updateFreeze,
   set chosen(v) { chosen = v; },
   // a debug sheet of every baller, big: hoops.sheet(k, pose)
-  set hold(v) { hold = v; }, stealOpen, committed, isSet, get tut() { return tut; }, get settings() { return settings; }, tick(dt = 1 / 60) { if (!updateFreeze(dt)) step(dt); menuInput(dt); pressed.clear(); }, passiveFx, hitFx, pop,
+  set hold(v) { hold = v; }, set autoP1(v) { autoP1 = v; }, get court() { return court; }, get read() { return read; }, get teeth() { return teeth; }, stealOpen, committed, isSet, get tut() { return tut; }, get settings() { return settings; }, tick(dt = 1 / 60) { if (!updateFreeze(dt)) step(dt); menuInput(dt); pressed.clear(); }, passiveFx, hitFx, pop,
   sheet(k = 3, pose = "idle") {
     hold = true;
     clearFrame(hud); const p = painterFor(hud); p.place(0, 0); p.rect(0, 0, W, H, hex("#2a2440"));
