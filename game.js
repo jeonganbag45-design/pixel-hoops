@@ -536,6 +536,7 @@ const sfx = {
   cutin: () => { noise(0.2, 0.1, 5000); beep(392, 0.1, "square", 0.05, 0); beep(784, 0.25, "square", 0.05, 0, 0.08); },
   freeze: () => { for (let i = 0; i < 5; i++) beep(2000 - i * 250, 0.08, "triangle", 0.05, 0, i * 0.04); },
   buzzer: () => beep(140, 0.7, "sawtooth", 0.07),
+  cue: (go) => { beep(go ? 1175 : 1568, 0.05, "triangle", 0.06); beep(go ? 1568 : 2093, 0.07, "triangle", 0.05, 0, 0.05); },
   catch: () => { beep(330, 0.04, "square", 0.05); beep(660, 0.06, "square", 0.04, 0, 0.03); },
   passive: () => { beep(1320, 0.05, "triangle", 0.04); beep(1760, 0.09, "triangle", 0.035, 0, 0.05); },
 };
@@ -1235,13 +1236,15 @@ function updatePlayer(p, c, dt) {
     if (!c.shootHeld || ball.owner !== p) {
       // let go early: a pump fake. Whoever jumps at it is in the air while you go.
       p.gather = 0;
-      if (ball.owner === p) { p.fakeT = 0.4; p.bitDone = false; sfx.whoosh(); }
+      if (ball.owner === p) { p.fakeT = 0.4; p.bitDone = false; sfx.whoosh(); beep(520, 0.08, "square", 0.04, 300); if (!demo) say(p, "FAKE", C.dim); }
     } else if ((p.gather -= dt) <= 0) { p.gather = 0; startShot(p); }
   }
   if (p.fakeT > 0) {
     p.fakeT -= dt;
     if (!p.bitDone && !opp.onGround && !opp.dunk && Math.abs(opp.x - p.x) < 40) {
-      p.bitDone = true; say(opp, "BIT!", C.gold); sfx.boing(); hype = Math.max(hype, 0.4);
+      p.bitDone = true; pop(opp, "BIT!", C.gold); sfx.boing(); hype = Math.max(hype, 0.6);
+      impact({ slow: 0.3, zoom: 1.07, at: [opp.x, opp.y - 30] }); hitFx("steal", opp.x, opp.y - 44, C.gold, 1);
+      if (!demo) crowd$.ooh();
       if (p.i === 0) tutHit("fake");
     }
   }
@@ -1273,7 +1276,8 @@ function ballHeld(p) {
   if (p.dunk) return [p.x + p.facing * 4 * K, p.y - 31 * K];
   if (p.granny > 0) return [p.x + p.facing * 3 * K, p.y - 10 * K];
   if (p.shooting) return [p.x + p.facing * 2 * K, p.y - 28 * K];
-  if (p.gather > 0 || p.fakeT > 0.2) return [p.x + p.facing * 3 * K, p.y - 22 * K];   // ball up: the gather, the fake
+  if (p.fakeT > 0.27) return [p.x + p.facing * 2 * K, p.y - 31 * K];                 // the fake: the ball high over his head
+  if (p.gather > 0 || p.fakeT > 0.2) return [p.x + p.facing * 3 * K, p.y - 22 * K];   // ball up: the gather
   if (!p.onGround) return [p.x + p.facing * 6 * K, p.y - 14 * K];
   if (p.frozen > 0) return [p.x + p.facing * 7 * K, p.y - 12 * K];
   const hand = p.y - 12 * K, ph = Math.abs(Math.sin(worldT * (p.dashT > 0 ? 16 : 9)));
@@ -1877,7 +1881,7 @@ const KO = {
   "QUIT TO MENU": "메인으로", "REMATCH": "한 판 더", "MENU": "메인으로", "PAUSED": "일시정지", "DRAW": "무승부", "PASSIVE": "패시브", 
   "1 ON 1 STREETBALL MAYHEM": "1대1 길거리 농구 난장판", "6 BALLERS  6 SPECIALS  5 KINDS OF CHAOS": "선수 6명 · 필살기 6개 · 카오스 5종",
   "M SOUND OFF": "M 소리 꺼짐", "M SOUND ON": "M 소리 켜짐", "CHOOSE YOUR BALLER": "선수 선택", "WAITING FOR P1": "P1 고르는 중...",
-  "GET READY!": "준비!", "SHOOT": "슛", "STEAL": "스틸", "JUMP": "점프", "BLOCK": "블락", "LEFT THUMB: MOVE   RIGHT THUMB: BIG BUTTON DOES IT ALL, DASH NEXT TO IT": "왼손: 이동   오른손: 큰 버튼 하나로 다 됨, 옆 버튼은 대시", "DASH": "대시", "DUNK": "덩크", "FAKE": "페이크", "BIT!": "속았다!", "CONTEST": "견제!", "QUICK FEET": "날쌘 발", "DASHES COST HALF STAMINA": "대시 스태미나 절반",
+  "GET READY!": "준비!", "SHOOT": "슛", "STEAL": "스틸", "JUMP": "점프", "BLOCK": "블락", "LEFT THUMB: MOVE   RIGHT THUMB: BIG BUTTON DOES IT ALL, DASH NEXT TO IT": "왼손: 이동   오른손: 큰 버튼 하나로 다 됨, 옆 버튼은 대시", "DASH": "대시", "DUNK": "덩크", "GO!": "지금!", "STEAL!": "스틸!", "FAKE": "페이크", "BIT!": "속았다!", "CONTEST": "견제!", "QUICK FEET": "날쌘 발", "DASHES COST HALF STAMINA": "대시 스태미나 절반",
   "TAP F QUICKLY: HE JUMPS, THEN GO PAST": "F를 짧게 톡: 상대가 뜨면 그 틈에 돌파", "TAP THE BIG BUTTON QUICKLY: HE JUMPS, THEN GO": "큰 버튼을 짧게 톡: 상대가 뜨면 그 틈에 돌파",
   "PRESS F WHEN THE BALL FLASHES": "공이 번쩍일 때 F", "PRESS STEAL WHEN THE BALL FLASHES": "공이 번쩍일 때 스틸",
   "DASH PAST A DEFENDER WHO JUMPED, REACHED OR LEANED = ANKLES": "뜨거나 손 뻗거나 반대로 쏠린 수비를 대시로 제치면 발목 브레이커",
@@ -2275,7 +2279,7 @@ function drawPlayer(p, pl, o = {}) {
   const air = live && !pl.onGround, moving = live && Math.abs(pl.vx) > 1 && !air;
   const dance = !ghost && (o.pose === "dance" || (live && (pl.celebrate > 0 || pl.winner)));
   const bob = dance ? Math.round(Math.abs(Math.sin(worldT * 10)) * 2) : o.pose === "idle" ? Math.round(Math.abs(Math.sin(worldT * 3))) : moving ? Math.round(Math.abs(Math.sin(pl.walk / 4))) : 0;
-  const old = ch.style === "old", hunch = old ? 1 : 0, Y = -bob, awake = live && pl.fire, G = awake ? 5 : 0;
+  const old = ch.style === "old", hunch = old ? 1 : 0, Y = -bob - (live && pl.fakeT > 0.27 ? 2 : 0), awake = live && pl.fire, G = awake ? 5 : 0;
   const stride = moving ? Math.round(Math.sin(pl.walk / 4) * 3) : 0;
   const bw = 12 + 2 * w, bx = -6 - w;                                            // torso box
   const top = Y - 29 - w - G;                                                    // shoulders (higher when awakened)
@@ -2428,10 +2432,58 @@ function drawMeter(p, pl) {
   if (inP) p.text("NOW!", x + 2, top - 10, C.green, { align: "center", outline: INK });
 }
 
+// ---- cues for a human player: the openings, shown where they are and heard when they open ----
+// defending: the ball gets a dotted ring when it is in your reach, and turns gold with a "!" in the steal window.
+// attacking: a defender who bit (in the air, reached, landed flat, leaning the wrong way) gets dizzy stars, and a gold
+// "GO!" arrow says dash past him now.
+const goOpen = (a) => {
+  const d = other(a), toward = Math.sign(hoopOf(a).cx - a.x) || 1;
+  return ball.owner === a && a.onGround && !a.shooting && a.gather <= 0 && a.stam >= DASH_COST(a) && d.ch.name !== "TANK"
+    && Math.abs(d.x - a.x) < 60 && committed(d, toward) && d.fallen <= 0;
+};
+const inReach = (p, o) => Math.abs(o.x - p.x) <= (p.fire ? 30 : 24) + (assist(p) ? 6 : 0) && Math.abs(o.y - p.y) <= 24;
+const cueWas = { steal: false, go: false };
+function drawCues(p) {
+  if (demo || tut?.done > 0) return;
+  const blink = Math.floor(worldT * 10) % 2;
+  let steal = false, go = false;
+  for (const me of players) {
+    if (me.tag === "CPU") continue;
+    const o = other(me);
+    if (ball.owner === o && me.fallen <= 0) {
+      const bx = Math.round(ball.x), by = Math.round(ball.y);
+      if (stealOpen(me, o)) {
+        steal = true;
+        p.ring(bx, by, BR + 3, 2, C.gold); p.glow(bx, by, 14, C.gold, 0.9);
+        // over your own head, where GO! shows on offense: one place to look for "now"
+        p.text("STEAL!", Math.round(me.x), Math.round(me.y - 62) - (blink ? 1 : 0), C.gold, { font: "big", align: "center", outline: INK });
+        p.line(Math.round(me.x), Math.round(me.y - 52), bx, by - BR - 2, C.gold);
+      } else if (inReach(me, o)) {
+        for (let i = 0; i < 6; i++) { const a = worldT * 4 + (i / 6) * Math.PI * 2; p.px(Math.round(bx + Math.cos(a) * (BR + 4)), Math.round(by + Math.sin(a) * (BR + 4)), WHITE); }
+      }
+    }
+    if (goOpen(me)) {
+      go = true;
+      const toward = Math.sign(hoopOf(me).cx - me.x) || 1, gx = Math.round(me.x), gy = Math.round(me.y - 86);   // over your own head, above the callouts
+      p.text("GO!", gx, gy - 4, C.gold, { font: "big", align: "center", outline: INK });
+      const ax = gx + toward * (14 + (blink ? 2 : 0));
+      p.tri(ax, gy, ax - toward * 6, gy - 5, ax - toward * 6, gy + 5, C.gold);
+    }
+  }
+  // dizzy stars over anyone who has bitten while the other side has the ball
+  for (const d of players) {
+    const a = other(d);
+    if (ball.owner !== a || d.ch.name === "TANK" || d.fallen > 0 || !committed(d, Math.sign(hoopOf(a).cx - a.x) || 1)) continue;
+    const hy = Math.round(d.y - 44 - (d.fire ? 5 : 0));
+    for (let s = 0; s < 3; s++) { const ang = worldT * 9 + s * 2.09; p.rect(Math.round(d.x + Math.cos(ang) * 7), Math.round(hy + Math.sin(ang) * 2), 2, 2, s === 1 ? WHITE : C.gold); }
+  }
+  // a chime when an opening appears, so you can hear it as well as see it
+  if (steal && !cueWas.steal) sfx.cue(); if (go && !cueWas.go) sfx.cue(true);
+  cueWas.steal = steal; cueWas.go = go;
+}
+
 function drawBall(p) {
   // a human defender sees the steal window: the ball flashes white
-  const thief = players.find((q) => q !== ball.owner && ball.owner && q.tag !== "CPU" && !demo);
-  if (thief && stealOpen(thief, ball.owner)) { p.ring(Math.round(ball.x), Math.round(ball.y), BR + 2, 1, WHITE); p.glow(ball.x, ball.y, 10, WHITE, 0.6); }
   const x = Math.round(ball.x), y = Math.round(ball.y), gold = golden, r = gold ? BR + 1 : BR, col = gold ? C.gold : C.ball;
   ball.trail.forEach(([tx, ty], i) => p.rect(Math.round(tx) - 1, Math.round(ty) - 1, 2, 2, ball.homing ? hex("#9a7cff") : gold ? C.gold : ball.shooter?.fire ? C.fire[i % 3] : C.green, (i + 1) / 12));
   if (!ball.owner) p.ellipse(x, FLOOR + 1, Math.max(1, 3 - (FLOOR - y) / 30), 1, C.shadow, 0.5);
@@ -2489,6 +2541,7 @@ function drawWorld() {
   drawHoopFront(p);
   for (const q of parts) p.rect(Math.round(q.x), Math.round(q.y), q.s, q.s, q.c, Math.min(1, (q.life / q.max) * 1.6));
   drawPfx(p);
+  drawCues(p);
   for (const pl of players) {
     drawMeter(p, pl);
     drawPassiveFx(p, pl);
@@ -2702,7 +2755,9 @@ function drawTouch(p) {
   }
   for (const [n, b] of Object.entries(lay)) {
     const on = held.has(n), ready = n === "sp" && me.sp >= 1, blink = Math.floor(worldT * 6) % 2;
-    const label = n === "act" ? smartLabel() : n === "dash" ? "DASH" : "SP";
+    const go = n === "dash" && goOpen(me), window_ = n === "act" && ball.owner === other(me) && stealOpen(me, other(me));
+    const label = n === "act" ? smartLabel() : n === "dash" ? (go ? "GO!" : "DASH") : "SP";
+    if (go || window_) { const pr = b.r + 3 + Math.round((Math.sin(worldT * 18) + 1) * 2); p.ring(b.x, b.y, pr, 2, C.gold); p.disc(b.x, b.y, b.r, C.gold, 0.45); }
     // the big button takes the color of what it will do: gold to score, the player's color to defend
     const col = hot && n !== "sp" ? fireRim : n === "dash" ? me.col : n === "sp" ? (ready ? C.gold : dim) : label === "SHOOT" || label === "DUNK" ? C.gold : me.col;
     if (hot && n !== "sp") burn(b.x, b.y, b.r, n === "act" ? 11 : 7);
