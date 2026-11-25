@@ -34,6 +34,21 @@
   #bDash { width: 70px; height: 70px; right: 60px; bottom: 165px; font-size: 14px; }
   #stick { position: absolute; width: 90px; height: 90px; border-radius: 50%; border: 2px solid rgba(255,255,255,.5); display: none; transform: translate(-50%, -50%); }
   #knob { position: absolute; width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,.7); display: none; transform: translate(-50%, -50%); }
+  #sel { inset: 0; display: none; flex-direction: column; align-items: center; justify-content: space-between; padding: 10px 0 12px; pointer-events: none; }
+  #sel h1 { margin: 0; font-size: 26px; color: #ffe03c; font-weight: normal; }
+  #sel button { pointer-events: auto; font-family: "G11", monospace; cursor: pointer; }
+  #tabs { display: flex; gap: 6px; margin-top: 6px; }
+  .tab { background: rgba(13,10,20,.85); color: #c8c0dc; border: 2px solid #5a5070; padding: 5px 10px; font-size: 15px; }
+  .tab.on { color: #fff; border-color: var(--c); box-shadow: 0 0 0 2px var(--c) inset; }
+  #card { margin-top: auto; background: rgba(13,10,20,.9); border: 2px solid #5a5070; padding: 8px 18px; display: flex; gap: 18px; align-items: center; }
+  #card b { font-size: 30px; font-weight: normal; }
+  #card i { font-style: normal; font-family: "G9", monospace; color: #c8c0dc; font-size: 15px; }
+  .stats { display: grid; grid-template-columns: auto auto; gap: 2px 10px; font-family: "G9", monospace; font-size: 13px; align-items: center; }
+  .pips { display: flex; gap: 3px; } .pips u { display: block; width: 12px; height: 8px; }
+  #selBtns { display: flex; gap: 10px; margin-top: 8px; }
+  #selBtns button { background: #3a3550; color: #fff; border: 2px solid #5a5070; font-size: 18px; padding: 6px 16px; }
+  #selBtns #playB { background: #f53cd1; border-color: #ff86e6; padding: 6px 36px; }
+  #sel small { font-family: "G9", monospace; color: #9088a4; font-size: 13px; margin-top: 4px; }
   #rotate { position: fixed; inset: 0; background: #07060c; color: #fff; font-family: "G11", monospace; font-size: 22px; display: none; align-items: center; justify-content: center; z-index: 9; }
   @media (orientation: portrait) and (pointer: coarse) { #rotate { display: flex; } }
 </style>
@@ -43,6 +58,7 @@
 <div class="ui" id="score"><span id="na"></span><b id="sa">0</b><span id="clock">1:00</span><b id="sb">0</b><span id="nb"></span></div>
 <div class="ui" id="fx"><div id="cue"></div><div id="meter"><i></i><u></u></div></div>
 <div class="ui" id="center"></div>
+<div class="ui" id="sel"></div>
 <div class="ui" id="help"></div>
 <div class="ui" id="touch"><div id="stick"></div><div id="knob"></div><div class="b" id="bDash">DASH</div><div class="b" id="bJump">JUMP</div><div class="b" id="bShoot">SHOOT</div></div>
 <div id="rotate">가로로 돌려주세요</div>
