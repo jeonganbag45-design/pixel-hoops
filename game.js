@@ -61,7 +61,7 @@ const CHARS = [
     passive: "ICE VEINS", pdesc: "BIGGER PERFECT ZONE", special: "DEEP FREEZE", sdesc: "ICE SPIKES FREEZE HIM" },
   { name: "VOLT", title: "SPEED DEMON", col: "#ffe03c", dark: "#a87a12", skin: "#8d5a3b", hair: "#fff6a0", style: "spiky",
     spd: 1.15, jmp: 1.05, shot: 0.95, three: 0.9, def: 1,
-    passive: "DOUBLE DASH", pdesc: "DASH TWICE IN A ROW", special: "THUNDER STEP", sdesc: "WARP TO RIM AND DUNK" },
+    passive: "QUICK FEET", pdesc: "DASHES COST HALF STAMINA", special: "THUNDER STEP", sdesc: "WARP TO RIM AND DUNK" },
   { name: "TANK", title: "THE BRICK WALL", col: "#5ad84a", dark: "#22882a", skin: "#6b4a3a", hair: "#1c1a24", style: "bald", wide: 1,
     spd: 0.85, jmp: 0.85, shot: 0.95, three: 0.7, def: 1.3,
     passive: "ROCK SOLID", pdesc: "DRIVES BOUNCE OFF HIM", special: "EARTHQUAKE", sdesc: "TWO QUAKES. JUMP BOTH!" },
@@ -590,7 +590,7 @@ function makePlayer(i, ci) {
     target: i === 0 ? 1 : 0, x: 0, y: FLOOR, vx: 0, vy: 0, onGround: true, facing: 1, walk: 0,
     shooting: false, shootT: 0, stun: 0, swipe: 0, cd: 0, whiff: 0, dashT: 0, dashCd: 0, dunkWin: 0, dashDir: 1, dashRolled: false,
     fallen: 0, fallDir: 1, hang: 0, dunk: null, squash: 0, flash: 0, celebrate: 0, ghosts: [], ghostT: 0,
-    frozen: 0, frozenKind: "ice", infernoT: 0, granny: 0, sp: 0.3, ptag: null, charges: ch.name === "VOLT" ? 2 : 1, rechargeT: 0, dashGap: 0,
+    frozen: 0, frozenKind: "ice", infernoT: 0, granny: 0, sp: 0.3, ptag: null, stam: 1, dashGap: 0, gather: 0, fakeT: 0, landT: 0, bitDone: false,
     msg: null, score: 0, streak: 0, fire: false, winner: false, loser: false,
     ai: { t: 0, tx: 0, plan: null, releaseAt: 0.33, jumpIn: 0, decided: false, spT: rnd(0.5, 2) },
   };
@@ -626,7 +626,7 @@ function startSelect(mode) {
 function setPossession(i) {
   const off = players[i], def = players[1 - i];
   off.x = i === 0 ? 90 : 230; def.x = i === 0 ? 150 : 170;
-  for (const p of players) Object.assign(p, { y: FLOOR, vx: 0, vy: 0, onGround: true, shooting: false, stun: 0, swipe: 0, whiff: 0, dashT: 0, fallen: 0, hang: 0, dunk: null, celebrate: 0, frozen: 0, granny: 0 });
+  for (const p of players) Object.assign(p, { y: FLOOR, vx: 0, vy: 0, onGround: true, shooting: false, gather: 0, fakeT: 0, landT: 0, stun: 0, swipe: 0, whiff: 0, dashT: 0, fallen: 0, hang: 0, dunk: null, celebrate: 0, frozen: 0, granny: 0 });
   off.facing = i === 0 ? 1 : -1; def.facing = -off.facing;
   Object.assign(ball, { owner: off, live: false, shooter: null, rimmed: false, blocked: false, vx: 0, vy: 0, trail: [], homing: null });
   for (const h of HOOPS) h.broken = false;
@@ -833,6 +833,7 @@ function cpuControl(me, opp, dt) {
   const go = (tx, dead = 3) => { if (tx < me.x - dead) c.left = true; else if (tx > me.x + dead) c.right = true; };
   const apex = (SHOT_JUMP * me.ch.jmp) / (GRAV * gravMul);
   if (me.shooting && ball.owner === me) { c.shootHeld = me.shootT < ai.releaseAt; return c; }
+  if (me.gather > 0 && ball.owner === me) { c.shootHeld = !ai.faking; return c; }   // holding through the gather, or letting go: a fake
   if (ai.jumpIn > 0 && (ai.jumpIn -= dt) <= 0) c.jump = true;
   if (me.sp >= 1 && ai.spT <= 0 && wantsSpecial(me, opp)) { c.special = true; ai.spT = rnd(...lvl(me).special); return c; }
 
@@ -843,29 +844,43 @@ function cpuControl(me, opp, dt) {
       ai.plan = r < t3 ? { kind: "three", at: rnd(100, 122) } : r < 0.62 ? { kind: "drive" } : { kind: "mid", at: rnd(36, 78) };
     }
     const ahead = (opp.x - me.x) * toward > 0 && Math.abs(opp.x - me.x) < 26 && opp.fallen <= 0;
-    const shoot = () => { c.shoot = c.shootHeld = true; ai.releaseAt = apex + gauss() * lvl(me).aim; ai.plan = null; };
+    const L = lvl(me), beat = committed(opp, toward) && Math.abs(opp.x - me.x) < 40;
+    // a covered shot is sometimes a fake first; a defender who bit gets attacked at once
+    const shoot = () => {
+      if (ahead && !beat && opp.onGround && me.fakeT <= 0 && Math.random() < L.fake) { c.shoot = c.shootHeld = true; ai.faking = true; return; }
+      ai.faking = false; c.shoot = c.shootHeld = true; ai.releaseAt = apex + gauss() * L.aim; ai.plan = null;
+    };
+    if (beat && me.onGround && me.dashT <= 0) {
+      if (me.dashCd <= 0 && courtSide(me) > 14) { c.dash = true; if (toward > 0) c.right = true; else c.left = true; return c; }
+      if (me.fakeT > 0) { shoot(); return c; }
+    }
+    // a jab step away, then the crossover back at him
+    if (ai.jabT > 0) { ai.jabT -= dt; if (toward > 0) c.left = true; else c.right = true; if (ai.jabT <= 0 && me.dashCd <= 0) { c.dash = true; if (toward > 0) c.right = true; else c.left = true; } return c; }
+    if (ahead && me.dashCd <= 0 && me.onGround && Math.random() < dt * L.jab) { ai.jabT = rnd(0.12, 0.28); return c; }
     if (ai.plan.kind === "drive") {
       go(h.cx);
       if (canDunk(me) && Math.random() < 0.6) { c.shoot = true; ai.plan = null; }
-      else if (front > 18 && front < 70 && me.dashCd <= 0 && (!ahead || Math.random() < 0.5)) c.dash = true;
+      else if (front > 18 && front < 70 && me.dashCd <= 0 && !ahead) c.dash = true;
       else if (front < 18 && me.onGround) shoot();
-      else if (ahead && front > 80 && me.dashCd <= 0 && Math.random() < dt * 1.5) c.dash = true;
+      else if (ahead && front < 18 && me.onGround) shoot();
     } else if (dist > ai.plan.at) {
       go(h.cx);
-      if (ahead && me.dashCd <= 0 && Math.random() < dt * 1.2) c.dash = true;
-    } else if (me.onGround && me.dashT <= 0) {
-      if (!ahead || Math.random() < 0.3) shoot(); else if (me.dashCd <= 0) c.dash = true;
-    }
+    } else if (me.onGround && me.dashT <= 0) shoot();
   } else if (ball.owner === opp) {
     const h = hoopOf(opp), dir = Math.sign(h.cx - opp.x) || 1;
     if (ai.t <= 0) { ai.t = rnd(...lvl(me).react); ai.tx = opp.x + dir * rnd(16, 23); }
     go(ai.tx, 2);
+    const L = lvl(me), near = Math.abs(opp.x - me.x) < (opp.dunk ? 46 : 32);
+    // the ball goes up: a shot or a fake? the easier the CPU, the more often he jumps at it right away
+    if (opp.gather > 0 && !ai.sawGather) { ai.sawGather = true; if (near && me.onGround && Math.random() < L.bite) ai.jumpIn = rnd(0.01, 0.06); }
     if ((opp.shooting || opp.dunk) && !ai.decided) {
       ai.decided = true;
-      const near = Math.abs(opp.x - me.x) < (opp.dunk ? 46 : 32);
-      if (near && me.onGround && Math.random() < lvl(me).block) ai.jumpIn = opp.dunk ? rnd(0.08, 0.22) : rnd(0.02, 0.14);
+      if (near && me.onGround && ai.jumpIn <= 0 && Math.random() < L.block) ai.jumpIn = opp.dunk ? rnd(0.08, 0.22) : rnd(0.02, 0.12);
     }
-    if (Math.abs(opp.x - me.x) < 22 && me.cd <= 0 && Math.random() < dt * lvl(me).steal) c.shoot = true;
+    if (opp.gather <= 0 && opp.fakeT <= 0) ai.sawGather = false;
+    // steals: take the open window, and now and then reach in when it isn't
+    if (me.cd <= 0 && stealOpen(me, opp) && Math.random() < L.steal) c.shoot = true;
+    else if (me.cd <= 0 && Math.abs(opp.x - me.x) < 24 && Math.random() < dt * L.reach) c.shoot = true;
     if (Math.abs(ai.tx - me.x) > 45 && me.dashCd <= 0 && Math.random() < dt * 3) c.dash = true;
   } else {
     go(ball.x, 2);
@@ -884,6 +899,33 @@ function cpuControl(me, opp, dt) {
 }
 
 // ---------- rules ----------
+// ---- the mind games ----
+// a defender who has bitten on something can't stay in front: he is in the air, reaching, lunging, landing flat-footed
+// from a jump, or leaning the wrong way
+function committed(d, dashDir = 0) {
+  if (d.whiff > 0 || d.swipe > 0 || d.dashT > 0 || d.landT > 0 || (!d.onGround && !d.dunk)) return true;
+  return dashDir !== 0 && Math.sign(d.vx) === -dashDir && Math.abs(d.vx) > 45;    // moving one way as you go the other
+}
+// set: on his feet, square to the ball handler, not moving. Running into him loses the ball.
+const isSet = (d, p) => d.onGround && d.fallen <= 0 && d.frozen <= 0 && !committed(d) && Math.abs(d.vx) < 12 && d.facing === Math.sign(p.x - d.x);
+// the steal window: the ball low on its bounce, on your side of him (SHADE reaches either side). The ball flashes when it's open.
+function stealOpen(p, opp) {
+  if (ball.owner !== opp || opp.shooting || opp.dunk || opp.gather > 0 || opp.fakeT > 0 || !opp.onGround) return false;
+  const reach = Math.abs(opp.x - p.x) <= (p.fire ? 30 : 24) + (assist(p) ? 6 : 0) && Math.abs(opp.y - p.y) <= 24;
+  const side = opp.facing === Math.sign(p.x - opp.x) || p.ch.name === "SHADE";
+  const low = Math.abs(Math.sin(worldT * (opp.dashT > 0 ? 16 : 9))) > (assist(p) ? 0.78 : 0.86) - (p.ch.def - 1) * 0.25;   // about a third of each bounce
+  return reach && side && low;
+}
+// how much the defender bothers a shot: 0 open, 1 a hand in the face
+function contest(p, d) {
+  const dx = Math.abs(d.x - p.x);
+  if (d.fallen > 0 || d.frozen > 0 || dx > 34) return 0;
+  if (!d.onGround) return d.vy < 60 && dx < 26 ? 1 : 0.15;                         // up with him, or already coming down
+  if (d.landT > 0 || d.whiff > 0) return 0.1;                                       // caught flat-footed
+  return d.facing === Math.sign(p.x - d.x) && dx < 26 ? 0.55 * d.ch.def : 0.15;
+}
+const DASH_COST = (p) => (p.ch.name === "VOLT" ? 0.2 : 0.4);
+
 function canDunk(p) {
   // a dunk takes a dash toward the rim: during it, or a moment after
   const front = courtSide(p), toward = -hoopOf(p).dir;
@@ -893,7 +935,7 @@ function canDunk(p) {
 function makeChance(p, def) {
   const h = hoopOf(p), dist = Math.abs(p.x - h.cx);
   let k = dist < 34 ? 0.74 : dist <= THREE ? (0.6 - (dist - 34) * 0.0022) * p.ch.shot : (0.42 - (dist - THREE) * 0.003) * p.ch.three;
-  if (Math.abs(def.x - p.x) < 26 && def.fallen <= 0 && def.frozen <= 0) k *= 1 - (def.onGround ? 0.4 : 0.55) * def.ch.def;
+  k *= 1 - contest(p, def) * 0.6;
   if (p.fire) k *= p.infernoT > 0 ? 1.4 : 1.25;
   return k;
 }
@@ -906,10 +948,12 @@ function startShot(p) {
 function release(p, forced = null) {
   const def = other(p), h = hoopOf(p), dist = Math.abs(p.x - h.cx), sj = SHOT_JUMP * p.ch.jmp;
   const iceVeins = !forced && p.ch.name === "FROST" && Math.abs(p.vy) > 32 * p.ch.jmp && Math.abs(p.vy) <= perfectZone(p);
+  const cont = forced ? 0 : contest(p, def), apexT = sj / (GRAV * gravMul), ms = Math.round((p.shootT - apexT) * 1000);
   let q = Math.abs(p.vy) <= perfectZone(p) ? "perfect" : Math.abs(p.vy) <= 85 ? "good" : p.vy < 0 ? "early" : "late";
   if (dist < 34 && q !== "perfect") q = "good";
   if (forced) q = "perfect";
-  const chance = forced ? 0.92 : Math.min(0.95, Math.max(0.04, makeChance(p, def) * { perfect: 1.4, good: 1, early: 0.45, late: 0.45 }[q]));
+  // timing and the contest decide it: a perfect release over an open look almost always drops, a rushed one rarely does
+  const chance = forced ? 0.92 : Math.min(0.97, Math.max(0.03, makeChance(p, def) * { perfect: 1.45, good: 1, early: 0.35, late: 0.35 }[q]));
   const made = Math.random() < chance, air = !made && (q === "early" || q === "late") && Math.random() < 0.4;
   // a miss is aimed at the rim: short off the front, long off the back, or nowhere near it
   const tx = made ? h.cx + rnd(-1.2, 1.2) : air ? h.front + h.dir * rnd(12, 20) : Math.random() < 0.65 ? h.front + h.dir * rnd(0, 3) : h.back - h.dir * rnd(0, 2);
@@ -928,7 +972,8 @@ function release(p, forced = null) {
     burst(bx, by, 10, C.green, 50, 0.3);
     if (iceVeins) passiveFx(p, [bx, by]);                                                    // only perfect thanks to the wider zone
   } else if (q === "good") say(p, "GOOD", C.gold);
-  else say(p, q === "early" ? "TOO EARLY" : "TOO LATE", C.red);
+  else say(p, `${q === "early" ? "EARLY" : "LATE"} ${Math.abs(ms)}MS`, C.red);           // how far off, so you can fix it
+  if (cont >= 0.5) say(def, "CONTEST", C.gold);
 }
 
 function startDunk(p) {
@@ -976,9 +1021,9 @@ function updateDunk(p, dt) {
 function startDash(p, dir) {
   const opp = other(p);
   p.dashT = 0.2; p.dunkWin = assist(p) ? 0.55 : 0.35; p.dashDir = dir; p.facing = dir; p.dashRolled = false;
-  // every dash spends a charge (VOLT carries two); an empty charge refills in 0.85 s
-  p.charges--; p.dashGap = 0.22; if (p.rechargeT <= 0) p.rechargeT = 0.85; p.dashCd = 0.22;
-  if (p.ch.name === "VOLT" && p.charges === 0) passiveFx(p);                      // the second dash in a row: nobody else has one
+  // a dash spends stamina (VOLT's cost half); it comes back over time
+  if (p.ch.name === "VOLT" && p.stam < 0.4) passiveFx(p);                          // a dash nobody else could afford right now
+  p.stam = Math.max(0, p.stam - DASH_COST(p)); p.dashGap = 0.22; p.dashCd = 0.22;
   dust(p.x, 5, -dir); sfx.whoosh(); sfx.squeak();
   if (ball.owner !== p) return;
   p.dashRolled = !((opp.x - p.x) * dir > 0);                                      // only a dash at the defender can break him
@@ -989,9 +1034,7 @@ function dashContact(p) {
   const d = other(p);
   if (p.dashRolled || ball.owner !== p || d.fallen > 0 || d.frozen > 0 || !d.onGround || Math.abs(d.x - p.x) > 14) return;
   p.dashRolled = true;
-  const turned = d.facing !== Math.sign(p.x - d.x);
-  const chance = d.ch.name === "TANK" ? 0 : (d.whiff > 0 ? 0.85 : d.dashT > 0 ? 0.45 : turned ? 0.5 : 0.22) / d.ch.def;
-  if (Math.random() < chance) {
+  if (d.ch.name !== "TANK" && committed(d, p.dashDir)) {
     d.fallen = 1.4; d.fallDir = -p.dashDir; d.vy = -70; d.onGround = false; d.flash = 0.1;
     say(p, "CROSSOVER", C.gold); gainSp(p, 0.15);
     hitFx("ankle", d.x, FLOOR, p.col, p.dashDir); pop(d, "ANKLES!", C.gold);
@@ -1006,16 +1049,14 @@ function dashContact(p) {
     if (d.ch.name === "TANK") passiveFx(d);
     impact({ stop: 0.05, shake: 2, dx: p.dashDir });
     sfx.thud();
-    if (Math.random() < (rock ? 0.6 : 0.25 * d.ch.def)) { dropBall(p, rock ? -p.dashDir * 50 : p.dashDir * 40, -100); pop(p, "STRIPPED!", C.red); hitFx("steal", p.x, p.y - 20, d.col, -p.dashDir); }
+    if (rock || isSet(d, p)) { dropBall(p, rock ? -p.dashDir * 50 : p.dashDir * 40, -100); pop(p, "STRIPPED!", C.red); hitFx("steal", p.x, p.y - 20, d.col, -p.dashDir); }
   }
 }
 
 function trySteal(p, opp) {
   p.cd = 0.7; p.swipe = 0.18; p.facing = Math.sign(opp.x - p.x) || p.facing;
-  const dx = opp.x - p.x, reach = Math.abs(dx) <= (p.fire ? 30 : 24) + (assist(p) ? 6 : 0) && Math.abs(opp.y - p.y) <= 24 && !opp.shooting && !opp.dunk;
-  const ballSide = opp.facing === Math.sign(p.x - opp.x);                          // reaching in on the dribble hand
-  const sticky = p.ch.name === "SHADE";
-  if (!reach || Math.random() > (ballSide ? 0.5 : 0.18) * p.ch.def * (sticky ? 1.5 : 1) * (assist(p) ? 1.3 : 1)) { p.whiff = sticky ? 0.2 : 0.45; say(p, "WHIFF", C.dim); sfx.whoosh(); return; }
+  const dx = opp.x - p.x, sticky = p.ch.name === "SHADE";
+  if (!stealOpen(p, opp)) { p.whiff = sticky ? 0.2 : 0.45; say(p, "WHIFF", C.dim); sfx.whoosh(); return; }
   const [hx, hy] = ballHeld(opp);
   dropBall(opp, -Math.sign(dx) * 45, -90);
   opp.stun = 0.45; opp.flash = 0.08; gainSp(p, 0.15);
@@ -1147,9 +1188,9 @@ const SPECIALS = {
 function updatePlayer(p, c, dt) {
   const opp = other(p), g = GRAV * gravMul;
   for (const k of ["cd", "swipe", "whiff", "dashGap", "dunkWin", "squash", "flash", "celebrate", "granny"]) p[k] -= dt;
-  const maxCharges = p.ch.name === "VOLT" ? 2 : 1;
-  if (p.charges < maxCharges && (p.rechargeT -= dt) <= 0) { p.charges++; p.rechargeT = p.charges < maxCharges ? 0.85 : 0; }
-  p.dashCd = p.charges > 0 ? Math.max(0, p.dashGap) : p.rechargeT;
+  p.stam = Math.min(1, p.stam + dt * 0.3);
+  p.dashCd = p.stam >= DASH_COST(p) ? Math.max(0, p.dashGap) : (DASH_COST(p) - p.stam) / 0.3;
+  p.landT -= dt;
   if (p.msg && (p.msg.t -= dt) <= 0) p.msg = null;
   const down = p.fallen > 0 || p.stun > 0.3 || (p.frozen > 0 && p.frozenKind === "ice");
   if (down && !p.hurt) { p.hurt = true; if (!p.loser) say$(p, "hurt"); } else if (!down) p.hurt = false;
@@ -1178,15 +1219,31 @@ function updatePlayer(p, c, dt) {
     p.dashT -= dt; p.vx = p.dashDir * SPEED * DASH * p.ch.spd;
     if ((p.ghostT -= dt) <= 0) { p.ghostT = 0.03; p.ghosts.push({ x: p.x, y: p.y, f: p.facing, a: 0.6 }); }
     dashContact(p);
-  } else if (!p.shooting && !p.dunk && p.fallen <= 0 && p.frozen <= 0) {
+  } else if (!p.shooting && !p.dunk && p.fallen <= 0 && p.frozen <= 0 && p.gather <= 0) {
     const sp = SPEED * p.ch.spd * (cpu && p.i === 1 && !demo ? lvl(p).speed : 1) * (has ? 0.92 : 1) * (p.whiff > 0 ? 0.35 : 1) * (p.fire ? 1.12 : 1);
     if (p.onGround) p.vx = dir * sp; else p.vx += (dir * sp - p.vx) * Math.min(1, dt * 3);
     if (dir) p.facing = dir;
   }
   if (c.jump && p.onGround && !p.shooting && p.whiff <= 0 && !p.dunk) { p.vy = -JUMP * p.ch.jmp * (p.fire ? 1.15 : 1); p.onGround = false; dust(p.x, 3); if (Math.random() < 0.3) say$(p, "hup"); }
   if (c.shoot) {
-    if (has && !p.shooting && !p.dunk) { if (canDunk(p)) startDunk(p); else startShot(p); }
+    // with the ball: a dunk if you're driving at the rim; otherwise you gather (ball up), and holding through it is a shot
+    if (has && !p.shooting && !p.dunk && p.gather <= 0) { if (canDunk(p)) startDunk(p); else if (p.onGround) p.gather = 0.13; else startShot(p); }
     else if (!has && p.cd <= 0 && ball.owner === opp) trySteal(p, opp);
+  }
+  if (p.gather > 0) {
+    p.vx = 0;
+    if (!c.shootHeld || ball.owner !== p) {
+      // let go early: a pump fake. Whoever jumps at it is in the air while you go.
+      p.gather = 0;
+      if (ball.owner === p) { p.fakeT = 0.4; p.bitDone = false; sfx.whoosh(); }
+    } else if ((p.gather -= dt) <= 0) { p.gather = 0; startShot(p); }
+  }
+  if (p.fakeT > 0) {
+    p.fakeT -= dt;
+    if (!p.bitDone && !opp.onGround && !opp.dunk && Math.abs(opp.x - p.x) < 40) {
+      p.bitDone = true; say(opp, "BIT!", C.gold); sfx.boing(); hype = Math.max(hype, 0.4);
+      if (p.i === 0) tutHit("fake");
+    }
   }
   if (p.shooting) {
     p.shootT += dt;
@@ -1200,7 +1257,7 @@ function updatePlayer(p, c, dt) {
   p.vy += g * dt; p.x += p.vx * dt; p.y += p.vy * dt;
   if (p.y >= FLOOR) {
     p.y = FLOOR; p.vy = 0; p.onGround = true;
-    if (wasAir) { p.squash = 0.1; dust(p.x, fallV > 250 ? 10 : 4); if (fallV > 250) impact({ shake: 1.5, dy: 1 }); if (p.fallen > 0) sfx.thud(); }
+    if (wasAir) { p.squash = 0.1; if (p.fallen <= 0 && fallV > 120) p.landT = 0.2; dust(p.x, fallV > 250 ? 10 : 4); if (fallV > 250) impact({ shake: 1.5, dy: 1 }); if (p.fallen > 0) sfx.thud(); }
   } else p.onGround = false;
   p.x = clamp(p.x, 8, W - 8);
   if (p.y < 50) { p.y = 50; p.vy = Math.max(p.vy, 0); }                          // moon jumps stop at the rafters, not off the screen
@@ -1216,6 +1273,7 @@ function ballHeld(p) {
   if (p.dunk) return [p.x + p.facing * 4 * K, p.y - 31 * K];
   if (p.granny > 0) return [p.x + p.facing * 3 * K, p.y - 10 * K];
   if (p.shooting) return [p.x + p.facing * 2 * K, p.y - 28 * K];
+  if (p.gather > 0 || p.fakeT > 0.2) return [p.x + p.facing * 3 * K, p.y - 22 * K];   // ball up: the gather, the fake
   if (!p.onGround) return [p.x + p.facing * 6 * K, p.y - 14 * K];
   if (p.frozen > 0) return [p.x + p.facing * 7 * K, p.y - 12 * K];
   const hand = p.y - 12 * K, ph = Math.abs(Math.sin(worldT * (p.dashT > 0 ? 16 : 9)));
@@ -1630,9 +1688,11 @@ const saveSettings = () => { try { localStorage.setItem("hoops.settings", JSON.s
 const DIFFS = ["easy", "normal", "hard"], BTNS = ["S", "M", "L"];
 // how the CPU opponent plays at each level
 const DIFF = {
-  easy: { speed: 0.82, aim: 0.17, react: [0.22, 0.42], steal: 0.35, block: 0.25, special: [3, 6] },
-  normal: { speed: 0.93, aim: 0.09, react: [0.08, 0.22], steal: 0.8, block: 0.5, special: [1, 3] },
-  hard: { speed: 1.02, aim: 0.05, react: [0.04, 0.12], steal: 1.4, block: 0.78, special: [0.6, 1.6] },
+  // steal: chance per frame to take an open window; reach: careless reaches per second; bite: how often he jumps at a fake;
+  // fake: how often he fakes a covered shot; jab: how often he jabs to set up a crossover
+  easy: { speed: 0.82, aim: 0.17, react: [0.22, 0.42], steal: 0.05, reach: 0.7, block: 0.3, bite: 0.65, fake: 0.1, jab: 0.2, special: [3, 6] },
+  normal: { speed: 0.93, aim: 0.09, react: [0.08, 0.22], steal: 0.12, reach: 0.35, block: 0.5, bite: 0.4, fake: 0.3, jab: 0.45, special: [1, 3] },
+  hard: { speed: 1.02, aim: 0.05, react: [0.04, 0.12], steal: 0.25, reach: 0.1, block: 0.7, bite: 0.15, fake: 0.5, jab: 0.8, special: [0.6, 1.6] },
 };
 // the level for this CPU: the player's choice against a human, normal when CPUs play each other
 const lvl = (p) => DIFF[!demo && cpu && p.i === 1 && !tut ? settings.diff : "normal"];
@@ -1699,7 +1759,8 @@ const TUT = [
   { key: "move", title: "MOVE", keys: "A D (OR ARROWS) TO MOVE", touch: "LEFT THUMB: SLIDE TO MOVE" },
   { key: "shoot", title: "SHOOT", keys: "HOLD F, LET GO AT THE TOP OF THE JUMP", touch: "HOLD THE BIG BUTTON, LET GO AT THE TOP" },
   { key: "dunk", title: "DUNK", keys: "DASH (S) AT THE RIM, THEN F", touch: "NEAR THE RIM THE BIG BUTTON SAYS DUNK: PRESS IT" },
-  { key: "steal", title: "STEAL", keys: "GET CLOSE AND PRESS F", touch: "GET CLOSE AND PRESS STEAL" },
+  { key: "fake", title: "FAKE", keys: "TAP F QUICKLY: HE JUMPS, THEN GO PAST", touch: "TAP THE BIG BUTTON QUICKLY: HE JUMPS, THEN GO" },
+  { key: "steal", title: "STEAL", keys: "PRESS F WHEN THE BALL FLASHES", touch: "PRESS STEAL WHEN THE BALL FLASHES" },
   { key: "block", title: "BLOCK", keys: "JUMP (W) WHEN HE SHOOTS", touch: "PRESS BLOCK WHEN HE SHOOTS" },
   { key: "special", title: "SPECIAL", keys: "YOUR SP IS FULL: PRESS E", touch: "YOUR SP IS FULL: PRESS SP" },
 ];
@@ -1713,7 +1774,8 @@ function startTutorial() {
 function tutSetup() {
   const [me, op] = players, k = TUT[tut.step]?.key;
   tut.moved = 0; tut.idle = 0; tut.shotIn = 1.2;
-  if (k === "steal" || k === "block") {
+  if (k === "fake") { setPossession(0); me.x = 170; op.x = 196; me.facing = 1; op.facing = -1; }
+  else if (k === "steal" || k === "block") {
     setPossession(1); op.x = k === "steal" ? 250 : 215; me.x = k === "steal" ? 170 : 199; op.facing = -1; me.facing = 1;
   } else {
     setPossession(0); me.x = k === "dunk" ? 232 : k === "shoot" ? 210 : 140; op.x = 40; me.facing = 1; op.facing = 1;
@@ -1740,15 +1802,17 @@ function tutUpdate(dt) {
   if (k === "move") { tut.moved += Math.abs(me.vx) * dt; if (tut.moved > 90) tutHit("move"); }
   // the drills against his ball start over when it is gone for a moment
   if ((k === "steal" || k === "block") && ball.owner !== op && !ball.live && phase === "play") { if ((tut.idle += dt) > 1.4) tutSetup(); } else tut.idle = 0;
-  if ((k === "shoot" || k === "dunk" || k === "special") && ball.owner !== me && !ball.live && phase === "play") { if ((tut.idle += dt) > 1.6) tutSetup(); }
+  if ((k === "shoot" || k === "dunk" || k === "special" || k === "fake") && ball.owner !== me && !ball.live && phase === "play") { if ((tut.idle += dt) > 1.6) tutSetup(); }
 }
 // GRAMPS, scripted: stands aside for your drills, dribbles slowly at you for the steal, shoots for the block
 function tutControl(me) {
   const c = { ...NONE }, k = TUT[tut?.step]?.key;
   if (!tut || tut.wait > 0 || tut.done > 0) return c;
+  if (k === "fake") { const at = players[0]; if (Math.abs(me.x - 196) > 3) { if (me.x < 196) c.right = true; else c.left = true; } if (at.gather > 0 && me.onGround) c.jump = true; }   // he always bites
   if (k === "steal" && ball.owner === me) { if (Math.floor(worldT * 3) % 3) c.left = true; if (me.x < 70) tutSetup(); }
   if (k === "block" && ball.owner === me) {
     if (!me.shooting && (tut.shotIn -= 1 / 60) <= 0) { c.shoot = c.shootHeld = true; me.ai.releaseAt = 0.34; tut.shotIn = 2.2; }
+    else if (me.gather > 0) c.shootHeld = true;                              // hold through the gather: a real shot, not a fake
     else if (me.shooting) c.shootHeld = me.shootT < me.ai.releaseAt;
   }
   return c;
@@ -1813,7 +1877,11 @@ const KO = {
   "QUIT TO MENU": "메인으로", "REMATCH": "한 판 더", "MENU": "메인으로", "PAUSED": "일시정지", "DRAW": "무승부", "PASSIVE": "패시브", 
   "1 ON 1 STREETBALL MAYHEM": "1대1 길거리 농구 난장판", "6 BALLERS  6 SPECIALS  5 KINDS OF CHAOS": "선수 6명 · 필살기 6개 · 카오스 5종",
   "M SOUND OFF": "M 소리 꺼짐", "M SOUND ON": "M 소리 켜짐", "CHOOSE YOUR BALLER": "선수 선택", "WAITING FOR P1": "P1 고르는 중...",
-  "GET READY!": "준비!", "SHOOT": "슛", "STEAL": "스틸", "JUMP": "점프", "BLOCK": "블락", "LEFT THUMB: MOVE   RIGHT THUMB: BIG BUTTON DOES IT ALL, DASH NEXT TO IT": "왼손: 이동   오른손: 큰 버튼 하나로 다 됨, 옆 버튼은 대시", "DASH": "대시", "DUNK": "덩크", "SETTINGS": "설정", "TUTORIAL": "튜토리얼", "LANGUAGE": "언어", "MUSIC": "음악", "SOUND": "효과음", "VIBRATION": "진동",
+  "GET READY!": "준비!", "SHOOT": "슛", "STEAL": "스틸", "JUMP": "점프", "BLOCK": "블락", "LEFT THUMB: MOVE   RIGHT THUMB: BIG BUTTON DOES IT ALL, DASH NEXT TO IT": "왼손: 이동   오른손: 큰 버튼 하나로 다 됨, 옆 버튼은 대시", "DASH": "대시", "DUNK": "덩크", "FAKE": "페이크", "BIT!": "속았다!", "CONTEST": "견제!", "QUICK FEET": "날쌘 발", "DASHES COST HALF STAMINA": "대시 스태미나 절반",
+  "TAP F QUICKLY: HE JUMPS, THEN GO PAST": "F를 짧게 톡: 상대가 뜨면 그 틈에 돌파", "TAP THE BIG BUTTON QUICKLY: HE JUMPS, THEN GO": "큰 버튼을 짧게 톡: 상대가 뜨면 그 틈에 돌파",
+  "PRESS F WHEN THE BALL FLASHES": "공이 번쩍일 때 F", "PRESS STEAL WHEN THE BALL FLASHES": "공이 번쩍일 때 스틸",
+  "DASH PAST A DEFENDER WHO JUMPED, REACHED OR LEANED = ANKLES": "뜨거나 손 뻗거나 반대로 쏠린 수비를 대시로 제치면 발목 브레이커",
+  "TAP SHOOT = PUMP FAKE. STEAL WHEN THE BALL FLASHES": "슛 짧게 톡 = 페이크. 공이 번쩍일 때 스틸", "SETTINGS": "설정", "TUTORIAL": "튜토리얼", "LANGUAGE": "언어", "MUSIC": "음악", "SOUND": "효과음", "VIBRATION": "진동",
   "CPU LEVEL": "CPU 난이도", "BUTTON SIZE": "버튼 크기", "LEFT-HANDED": "왼손잡이 모드", "ON": "켜짐", "OFF": "꺼짐", "EASY": "쉬움", "NORMAL": "보통", "HARD": "어려움",
   "SMALL": "작게", "MEDIUM": "보통", "LARGE": "크게", "PRACTICE": "연습", "SKIP STEP": "이 단계 건너뛰기", "NICE!": "좋아요!", "YOU'RE READY!": "준비 완료!", "NOW GO WIN A REAL GAME": "이제 실전에서 이겨보세요",
   "SPECIAL": "필살기", "A D (OR ARROWS) TO MOVE": "A D (또는 방향키)로 이동", "LEFT THUMB: SLIDE TO MOVE": "왼손 엄지로 밀어서 이동",
@@ -1841,6 +1909,8 @@ const KO = {
 };
 const KO_PATTERNS = [
   [/^(\w+) WINS!$/, (m) => `${m[1]} 승리!`],
+  [/^EARLY (\d+)MS$/, (m) => `빠름 ${m[1]}ms`],
+  [/^LATE (\d+)MS$/, (m) => `늦음 ${m[1]}ms`],
   [/^(\w+) TAKES IT$/, (m) => `${m[1]} 승!`],
   [/^(\w+) SCORES!  \*  $/, (m) => `${m[1]} 득점!  *  `],
   [/^!! (.+) !!  $/, (m) => `!! ${KO[m[1]] ?? m[1]} !!  `],
@@ -2209,7 +2279,7 @@ function drawPlayer(p, pl, o = {}) {
   const stride = moving ? Math.round(Math.sin(pl.walk / 4) * 3) : 0;
   const bw = 12 + 2 * w, bx = -6 - w;                                            // torso box
   const top = Y - 29 - w - G;                                                    // shoulders (higher when awakened)
-  const up = live && (pl.shooting || pl.hang > 0 || pl.dunk || (air && !has));
+  const up = live && (pl.shooting || pl.hang > 0 || pl.dunk || pl.gather > 0 || pl.fakeT > 0.2 || (air && !has));
   const swipe = live && pl.swipe > 0, granny = live && pl.granny > 0;
 
   // the back arm, behind everything
@@ -2322,13 +2392,10 @@ function drawPlayer(p, pl, o = {}) {
       }
     }
     if (has && !pl.shooting) p.tri(ax - 3, ht - 9, ax + 3, ht - 9, ax, ht - 5, pl.col);
-    if (ch.name === "VOLT") {
-      // his two dash charges, as little bolts on the floor by his feet: lit when ready
-      for (let i = 0; i < 2; i++) {
-        const bx = ax - 5 + i * 7, on = i < pl.charges, c = on ? C.volt : hex("#4a4258");
-        p.rect(bx, FLOOR + 3, 2, 2, c); p.rect(bx + 1, FLOOR + 5, 2, 1, c); p.rect(bx + 2, FLOOR + 6, 1, 2, c);
-        if (on) p.light(bx + 1, FLOOR + 5, C.gold, 0.4);
-      }
+    if (pl.stam < 0.999 && !demo) {
+      // stamina on the floor under him: his color while a dash is affordable, red when it isn't
+      const sw = 14, ok = pl.stam >= DASH_COST(pl);
+      p.rect(ax - sw / 2 - 1, FLOOR + 4, sw + 2, 3, INK); p.rect(ax - sw / 2, FLOOR + 5, Math.round(sw * pl.stam), 1, ok ? pl.col : C.red);
     }
     if (pl.frozen > 0 && pl.frozenKind === "ice") {
       const iw = bw + 8, ih = 44, ix = ax - iw / 2;
@@ -2362,6 +2429,9 @@ function drawMeter(p, pl) {
 }
 
 function drawBall(p) {
+  // a human defender sees the steal window: the ball flashes white
+  const thief = players.find((q) => q !== ball.owner && ball.owner && q.tag !== "CPU" && !demo);
+  if (thief && stealOpen(thief, ball.owner)) { p.ring(Math.round(ball.x), Math.round(ball.y), BR + 2, 1, WHITE); p.glow(ball.x, ball.y, 10, WHITE, 0.6); }
   const x = Math.round(ball.x), y = Math.round(ball.y), gold = golden, r = gold ? BR + 1 : BR, col = gold ? C.gold : C.ball;
   ball.trail.forEach(([tx, ty], i) => p.rect(Math.round(tx) - 1, Math.round(ty) - 1, 2, 2, ball.homing ? hex("#9a7cff") : gold ? C.gold : ball.shooter?.fire ? C.fire[i % 3] : C.green, (i + 1) / 12));
   if (!ball.owner) p.ellipse(x, FLOOR + 1, Math.max(1, 3 - (FLOOR - y) / 30), 1, C.shadow, 0.5);
@@ -2481,9 +2551,9 @@ function drawHowTo(p) {
   const tips = [
     [C.green, "HOLD SHOOT, LET GO AT THE TOP OF THE JUMP = PERFECT"],
     [C.gold, "DASH THEN SHOOT NEAR THE RIM = DUNK (SOMETIMES GLASS)"],
-    [CHARS[0].col, "DASH INTO A DEFENDER = BREAK HIS ANKLES... OR HIT A WALL"],
+    [CHARS[0].col, "DASH PAST A DEFENDER WHO JUMPED, REACHED OR LEANED = ANKLES"],
     [C.fire[1], "BLAZE: 2 MAKES IN A ROW = AWAKEN (BIGGER, HIGHER, HOTTER)"],
-    [CHARS[4].col, "A PASSIVE + A SPECIAL EACH. HOVER THE FACE UP TOP (OR H)"],
+    [CHARS[4].col, "TAP SHOOT = PUMP FAKE. STEAL WHEN THE BALL FLASHES"],
     [C.gold, "JUMP INTO A FLYING BALL WITH YOUR HANDS UP = CATCH IT"],
     [C.pink, "CHAOS EVERY 20 SECONDS. IT GETS WEIRD"],
   ];
@@ -2639,7 +2709,8 @@ function drawTouch(p) {
     p.disc(b.x, b.y, b.r, on ? col : hot && n !== "sp" ? hex("#3a0a04") : INK, on ? 0.8 : 0.45);
     p.ring(b.x, b.y, b.r, on || (ready && blink) || hot ? 2 : 1, on ? WHITE : col);
     if (n === "act") p.ring(b.x, b.y, b.r - 4, 1, lerpC(col, INK, 0.6));
-    p.text(label, b.x, b.y - 2, on ? INK : n === "sp" && !ready ? dim : WHITE, { align: "center", outline: on ? undefined : INK });
+    p.text(label, b.x, b.y - 2, on ? INK : n === "sp" && !ready ? dim : (n === "dash" && me.stam < DASH_COST(me)) ? C.red : WHITE, { align: "center", outline: on ? undefined : INK });
+    if (n === "dash") { p.rect(b.x - 7, b.y + 5, 14, 2, INK); p.rect(b.x - 7, b.y + 5, Math.round(14 * me.stam), 2, me.stam >= DASH_COST(me) ? me.col : C.red); }
   }
   // pause
   veil(p, 229, 3, 15, 12, INK, 0.7); frameBox(p, 229, 3, 15, 12, dim); p.rect(233, 6, 2, 6, WHITE); p.rect(238, 6, 2, 6, WHITE);
@@ -2773,7 +2844,7 @@ window.hoops = {
   set clock(v) { clock = v; }, setPossession, step, startGame, startChaos, beginChaos, setScreen, endGame, render, startSelect, trySpecial, updateFreeze,
   set chosen(v) { chosen = v; },
   // a debug sheet of every baller, big: hoops.sheet(k, pose)
-  set hold(v) { hold = v; }, get tut() { return tut; }, get settings() { return settings; }, tick(dt = 1 / 60) { if (!updateFreeze(dt)) step(dt); menuInput(dt); pressed.clear(); }, passiveFx, hitFx, pop,
+  set hold(v) { hold = v; }, stealOpen, committed, isSet, get tut() { return tut; }, get settings() { return settings; }, tick(dt = 1 / 60) { if (!updateFreeze(dt)) step(dt); menuInput(dt); pressed.clear(); }, passiveFx, hitFx, pop,
   sheet(k = 3, pose = "idle") {
     hold = true;
     clearFrame(hud); const p = painterFor(hud); p.place(0, 0); p.rect(0, 0, W, H, hex("#2a2440"));
