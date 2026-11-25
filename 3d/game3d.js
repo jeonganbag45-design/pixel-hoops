@@ -15,10 +15,12 @@ const KO = {
   "SO CLOSE": "아깝다!", CONTEST: "견제!", MINE: "내 꺼!", "GLASS!!": "백보드 박살!!", "CHOOSE YOUR BALLER": "선수 선택", PLAY: "시작",
   "THE HOTHEAD": "열혈 슈터", "COLD BLOODED": "냉정한 저격수", "SPEED DEMON": "번개 발", "THE BRICK WALL": "인간 장벽", "THE PICKPOCKET": "소매치기 장인", "OLD BUT GOLD": "왕년의 전설",
   SPD: "속도", JMP: "점프", SHOT: "슛", "3PT": "3점", DEF: "수비", "VS CPU": "CPU와 대결",
-  PICK: "← → 고르기   F / ENTER 결정", HELP: "WASD 이동   SPACE 점프   F 슛/스틸 (꾹 누르고 꼭대기에서 떼기, 짧게 톡 = 페이크)   SHIFT 대시 (림 쪽 대시 + F = 덩크)",
+  PICK: "← → 고르기   F / ENTER 결정",
+  HELP: "우클릭/WASD 이동   SPACE 슛·스틸 (꾹 누르고 꼭대기에서 떼기, 톡 = 페이크)   SHIFT 커서 쪽 대시 (림 쪽 대시 + SPACE = 덩크)   E 점프·블락   V 시점   휠 줌",
+  VIEW: "시점", SIDE: "옆", HIGH: "위", BEHIND: "뒤",
 };
 const T = (s) => (LANG === "ko" ? KO[s] ?? s : s);
-const HELP_EN = "WASD MOVE   SPACE JUMP   F SHOOT/STEAL (HOLD, LET GO AT THE TOP; TAP = FAKE)   SHIFT DASH (DASH AT THE RIM + F = DUNK)";
+const HELP_EN = "RIGHT CLICK / WASD MOVE   SPACE SHOOT/STEAL (HOLD, LET GO AT THE TOP; TAP = FAKE)   SHIFT DASH TO THE CURSOR (AT THE RIM + SPACE = DUNK)   E JUMP/BLOCK   V VIEW   WHEEL ZOOM";
 
 // ---------- renderer, scene, camera ----------
 const canvas = document.getElementById("c");
@@ -404,7 +406,7 @@ function updatePlayer(p, c, dt) {
   } else if (p.stun > 0) { p.stun -= dt; c = NONE; }
   const has = ball.owner === p;
   let mx = c.mx, mz = c.mz; const ml = Math.hypot(mx, mz); if (ml > 1) { mx /= ml; mz /= ml; }
-  if (c.dash && p.dashCd <= 0 && p.onGround && !p.shooting && p.gather <= 0 && p.stam >= 0.4 && p.fallen <= 0) startDash(p, ml > 0.2 ? norm(mx, mz) : p.face);
+  if (c.dash && p.dashCd <= 0 && p.onGround && !p.shooting && p.gather <= 0 && p.stam >= 0.4 && p.fallen <= 0) startDash(p, c.dashDir ?? (ml > 0.2 ? norm(mx, mz) : p.face));
   const sp = 5.2 * p.ch.spd * (has ? 0.92 : 1) * (p.whiff > 0 ? 0.35 : 1) * (p.i === 1 && !dbg.auto ? 0.93 : 1);
   if (p.dashT > 0) {
     p.dashT -= dt; p.vx = p.dashV[0] * 14 * p.ch.spd; p.vz = p.dashV[1] * 14 * p.ch.spd; dashContact(p);
@@ -511,14 +513,45 @@ if (isTouch) {
     if (s) { stickEl.style.left = s.ox + "px"; stickEl.style.top = s.oy + "px"; knobEl.style.left = s.x + "px"; knobEl.style.top = s.y + "px"; }
   }, 16);
 }
+// ---- the mouse: right click (or hold and drag) to run there; a dash goes toward the cursor ----
+const raycaster = new THREE.Raycaster(), floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), ndc = new THREE.Vector2();
+const mouse = { ground: null, target: null, right: false };
+const marker = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.32, 16), new THREE.MeshBasicMaterial({ color: "#5ad84a", transparent: true, depthWrite: false }));
+marker.rotation.x = -Math.PI / 2; marker.visible = false; scene.add(marker);
+function groundAt(e) {
+  const r = canvas.getBoundingClientRect(); ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  raycaster.setFromCamera(ndc, camera); const p = new THREE.Vector3(); return raycaster.ray.intersectPlane(floorPlane, p) ? p : null;
+}
+function setTarget(p, mark) {
+  if (!p || screen !== "game") return;
+  mouse.target = { x: clamp(p.x, -HALF_L + 0.3, HALF_L - 0.3), z: clamp(p.z, -HALF_W + 0.3, HALF_W - 0.3) };
+  if (mark) fx.ring(mouse.target.x, mouse.target.z, "#5ad84a", 0.7, 0.3);
+}
+canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+canvas.addEventListener("pointerdown", (e) => { if (e.pointerType !== "mouse") return; audio(); if (e.button === 2) { mouse.right = true; setTarget(groundAt(e), true); } });
+addEventListener("pointermove", (e) => { if (e.pointerType !== "mouse") return; mouse.ground = groundAt(e); if (mouse.right) setTarget(mouse.ground, false); });
+addEventListener("pointerup", (e) => { if (e.button === 2) mouse.right = false; });
+addEventListener("wheel", (e) => { if (screen === "game") camZoom = clamp(camZoom * (e.deltaY > 0 ? 1.1 : 0.9), 0.6, 1.6); }, { passive: true });
+// keys and the stick move you relative to the camera: up on the screen is away from you, whatever the view
+let camFwd = [0, -1];
+const camRel = (kx, kz) => { const [fx_, fz] = camFwd; return [kx * -fz - kz * fx_, kx * fx_ - kz * fz]; };
 function humanControl() {
   const c = { ...NONE };
-  c.mx = (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0);
-  c.mz = (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0) - (keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0);
-  c.jump = pressed.has("Space") || pressed.has("KeyK"); c.dash = pressed.has("ShiftLeft") || pressed.has("ShiftRight") || pressed.has("KeyL");
-  c.shoot = pressed.has("KeyF") || pressed.has("KeyJ"); c.shootHeld = keys.has("KeyF") || keys.has("KeyJ");
+  const kx = (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0);
+  const kz = (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0) - (keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0);
+  const me = players[0];
+  if (kx || kz) { [c.mx, c.mz] = camRel(kx, kz); mouse.target = null; }
+  else if (mouse.target) {
+    const dx = mouse.target.x - me.x, dz = mouse.target.z - me.z, d = Math.hypot(dx, dz);
+    if (d < 0.18) mouse.target = null; else { c.mx = dx / d; c.mz = dz / d; }
+  }
+  c.jump = pressed.has("KeyE") || pressed.has("KeyK");
+  c.dash = pressed.has("ShiftLeft") || pressed.has("ShiftRight") || pressed.has("KeyL");
+  c.shoot = pressed.has("Space") || pressed.has("KeyF") || pressed.has("KeyJ"); c.shootHeld = keys.has("Space") || keys.has("KeyF") || keys.has("KeyJ");
+  // a dash with the mouse goes toward the cursor (and stops the run to the old click)
+  if (c.dash && !isTouch && mouse.ground && Math.hypot(mouse.ground.x - me.x, mouse.ground.z - me.z) > 0.5) { c.dashDir = norm(mouse.ground.x - me.x, mouse.ground.z - me.z); mouse.target = null; }
   const s = touch.stick;
-  if (s) { const dx = s.x - s.ox, dy = s.y - s.oy, d = Math.hypot(dx, dy); if (d > 8) { c.mx = dx / 50; c.mz = dy / 50; } }
+  if (s) { const dx = s.x - s.ox, dy = s.y - s.oy, d = Math.hypot(dx, dy); if (d > 8) [c.mx, c.mz] = camRel(dx / 50, dy / 50); }
   if (touch.tap.has("jump")) c.jump = true; if (touch.tap.has("dash")) c.dash = true;
   if (touch.tap.has("shoot")) c.shoot = true; if (touch.held.has("shoot")) c.shootHeld = true;
   // on a phone, the shot button near the rim after a dash is the dunk (pressed for you when it becomes possible)
@@ -534,7 +567,7 @@ function showSelect() {
   screen = "select"; locked = false; spinT = 0; fx.clear();
   centerEl.innerHTML = ""; document.getElementById("touch").style.display = "none"; document.getElementById("score").style.display = "none";
   for (const p of players) scene.remove(p.body.root);
-  selEl.style.display = "flex"; document.getElementById("help").style.display = "none";
+  selEl.style.display = "flex"; document.getElementById("help").style.display = "none"; document.getElementById("viewB").style.display = "none"; mouse.target = null;
   selEl.innerHTML = `<h1>${T("CHOOSE YOUR BALLER")}</h1><div id="tabs">${CHARS.map((c, i) => `<button class="tab" data-i="${i}" style="--c:${c.col}">${c.name}</button>`).join("")}</div>
     <div id="card"></div><div id="selBtns"><button id="prevB">&lt;</button><button id="playB">${T("PLAY")}</button><button id="nextB">&gt;</button></div><small>${isTouch ? "" : LANG === "ko" ? KO.PICK : "< > OR A D TO PICK   F / ENTER TO PLAY"}</small>`;
   selEl.querySelectorAll(".tab").forEach((b) => (b.onclick = () => { audio(); if (locked) return; if (pickI === +b.dataset.i) lockIn(); else { pickI = +b.dataset.i; sfx.click(); drawCard(); } }));
@@ -557,6 +590,8 @@ function lockIn() {
 }
 function startGame() {
   selEl.style.display = "none"; document.getElementById("score").style.display = "flex"; document.getElementById("help").style.display = "block";
+  const vb = document.getElementById("viewB"); vb.style.display = "block"; vb.textContent = `${T("VIEW")}: ${T(VIEWS[view])}`;
+  vb.onclick = (e) => { e.stopPropagation(); audio(); nextView(); vb.blur(); };
   if (isTouch) document.getElementById("touch").style.display = "block";
   for (const p of players) scene.remove(p.body.root);
   players = [makePlayer(0, pickI), makePlayer(1, cpuI)];
@@ -565,7 +600,8 @@ function startGame() {
   newGame();
 }
 function newGame() {
-  screen = "game"; fx.clear();
+  screen = "game"; fx.clear(); mouse.target = null;
+  document.activeElement?.blur?.();                                             // so Space shoots instead of pressing a button again
   for (const p of players) { p.score = 0; p.stam = 1; p.winner = p.loser = false; }
   clock = 60; overtime = false; phase = "countdown"; stateT = 0; lastScorer = null; jumbo.key = "";
   setPossession(Math.random() < 0.5 ? 0 : 1);
@@ -596,6 +632,7 @@ function step(dt) {
     } else if ((spinT -= dt) <= 0) startGame();
     return;
   }
+  if (pressed.has("KeyV") || pressed.has("KeyC")) nextView();
   if (screen === "over") { for (const p of players) updatePlayer(p, NONE, dt); updateBall(dt); return; }
   if (phase === "countdown") {
     const n = 3 - Math.floor(stateT / 0.6);
@@ -623,7 +660,14 @@ function step(dt) {
 }
 
 // ---------- drawing ----------
-const camPos = new THREE.Vector3(0, 6.6, 17), camLook = new THREE.Vector3(0, 1.2, 0);
+const camPos = new THREE.Vector3(0, 6.6, 17), camLook = new THREE.Vector3(0, 1.2, 0), camGoal = new THREE.Vector3(), lookGoal = new THREE.Vector3();
+// three views, V (or the button) to switch: side-on like a broadcast, high above, behind you; the wheel zooms
+const VIEWS = ["SIDE", "HIGH", "BEHIND"];
+let view = +(localStorage.getItem("hoops3d.view") ?? 0) % 3, camZoom = 1, camYaw = 0;
+function nextView() {
+  view = (view + 1) % VIEWS.length; localStorage.setItem("hoops3d.view", view); sfx.click();
+  const el = document.getElementById("viewB"); el.textContent = `${T("VIEW")}: ${T(VIEWS[view])}`;
+}
 let cueWas = false;
 function drawStage(dt) {
   stageFigs.forEach((f, i) => {
@@ -665,8 +709,23 @@ function draw(dt) {
   // the camera: side-on like a broadcast, looking ahead to the hoop being attacked; shake and a zoom punch on big hits
   const me = players[0];
   const ahead = ball.live && ball.shooter ? hoop(ball.shooter).x * 0.6 + ball.x * 0.4 : ball.x * 0.8 + (ball.owner ? ball.owner.dir * 2.5 : 0);
-  const fxX = clamp(ahead, -10, 10);
-  camPos.lerp(v3.set(fxX, 6.6, 17 + Math.abs(ball.z) * 0.2), Math.min(1, dt * 3)); camLook.lerp(v3.set(fxX, 1.3, ball.z * 0.25 - 1), Math.min(1, dt * 4));
+  const fxX = clamp(ahead, -10, 10), z = camZoom, vw = VIEWS[view];
+  if (vw === "SIDE") { camGoal.set(fxX, 6.6 * z, 17 * z + Math.abs(ball.z) * 0.2); lookGoal.set(fxX, 1.3, ball.z * 0.25 - 1); }
+  else if (vw === "HIGH") { camGoal.set(fxX, 16 * z, 10 * z + ball.z * 0.3); lookGoal.set(fxX, 0, ball.z * 0.4 - 0.5); }
+  else {
+    // a chase camera behind you that keeps the play in front: toward your hoop with the ball, toward the ball without it
+    const tx = ball.owner === me ? me.dir * RIM_X : ball.x, tz = ball.owner === me ? 0 : ball.z;
+    if (Math.hypot(tx - me.x, tz - me.z) > 1.2) {
+      const want = Math.atan2(tz - me.z, tx - me.x); let d = want - camYaw; d = Math.atan2(Math.sin(d), Math.cos(d));
+      camYaw += d * Math.min(1, dt * 2.2);
+    }
+    const dx = Math.cos(camYaw), dz = Math.sin(camYaw);
+    camGoal.set(me.x - dx * 8 * z, 5.2 * z + 0.4, me.z - dz * 8 * z); lookGoal.set(me.x + dx * 7, 0.8, me.z + dz * 7);
+  }
+  camPos.lerp(camGoal, Math.min(1, dt * 3)); camLook.lerp(lookGoal, Math.min(1, dt * 4));
+  camFwd = norm(camLook.x - camPos.x, camLook.z - camPos.z);
+  marker.visible = !!mouse.target && screen === "game";
+  if (marker.visible) { marker.position.set(mouse.target.x, 0.03, mouse.target.z); marker.material.opacity = 0.6 + Math.sin(worldT * 10) * 0.3; }
   const sh = fx.shake * 0.25;
   camera.position.set(camPos.x + (Math.random() - 0.5) * sh, camPos.y + (Math.random() - 0.5) * sh, camPos.z);
   camera.lookAt(camLook); camera.fov = 32 - fx.punch * 3.5; camera.updateProjectionMatrix();

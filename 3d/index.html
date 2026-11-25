@@ -49,6 +49,7 @@
   #selBtns button { background: #3a3550; color: #fff; border: 2px solid #5a5070; font-size: 18px; padding: 6px 16px; }
   #selBtns #playB { background: #f53cd1; border-color: #ff86e6; padding: 6px 36px; }
   #sel small { font-family: "G9", monospace; color: #9088a4; font-size: 13px; margin-top: 4px; }
+  #viewB { position: fixed; top: 10px; right: 12px; display: none; font-family: "G11", monospace; font-size: 15px; color: #fff; background: rgba(13,10,20,.85); border: 2px solid #5a5070; padding: 5px 10px; cursor: pointer; z-index: 3; }
   #rotate { position: fixed; inset: 0; background: #07060c; color: #fff; font-family: "G11", monospace; font-size: 22px; display: none; align-items: center; justify-content: center; z-index: 9; }
   @media (orientation: portrait) and (pointer: coarse) { #rotate { display: flex; } }
 </style>
@@ -57,6 +58,7 @@
 <canvas id="c"></canvas>
 <div class="ui" id="score"><span id="na"></span><b id="sa">0</b><span id="clock">1:00</span><b id="sb">0</b><span id="nb"></span></div>
 <div class="ui" id="fx"><div id="cue"></div><div id="meter"><i></i><u></u></div></div>
+<button id="viewB"></button>
 <div class="ui" id="center"></div>
 <div class="ui" id="sel"></div>
 <div class="ui" id="help"></div>
