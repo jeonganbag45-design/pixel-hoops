@@ -158,6 +158,7 @@ const stageFigs = [];
     stageFigs.push({ b, spot, x: b.root.position.x });
   });
 })();
+const stageBall = new THREE.Mesh(new THREE.SphereGeometry(BR, 10, 8), mat("#f08a2a")); stageBall.castShadow = true; stage.add(stageBall);
 resize();
 
 // ---------- the ballers ----------
@@ -167,7 +168,7 @@ function makePlayer(i, ci) {
   const ch = CHARS[ci], body = makeBaller(ch); scene.add(body.root);
   return { i, name: ch.name, ch, body, dir: i === 0 ? 1 : -1, x: 0, z: 0, y: 0, vx: 0, vz: 0, vy: 0, onGround: true, face: [1, 0],
     score: 0, shooting: false, shootT: 0, gather: 0, fakeT: 0, bitDone: false, dashT: 0, dashCd: 0, dashV: [1, 0], dashRolled: false, dunkWin: 0, ghostT: 0,
-    stam: 1, fallen: 0, ankled: false, whiff: 0, cd: 0, stun: 0, landT: 0, dunk: null, hang: 0, walk: 0, celebrate: 0, winner: false, loser: false, ai: { t: 0 } };
+    hand: 1, crossT: 0, followT: 0, landA: 0, stam: 1, fallen: 0, ankled: false, whiff: 0, cd: 0, stun: 0, landT: 0, dunk: null, hang: 0, walk: 0, celebrate: 0, winner: false, loser: false, ai: { t: 0 } };
 }
 const other = (p) => players[1 - p.i];
 const hoop = (p) => ({ x: p.dir * RIM_X, z: 0 });
@@ -212,8 +213,10 @@ const sfx = {
 const fxEl = document.getElementById("fx"), cueEl = document.getElementById("cue"), meterEl = document.getElementById("meter"), centerEl = document.getElementById("center"), selEl = document.getElementById("sel");
 const pops = [];
 function pop(text, x, y, z, color = "#fff", big = false) {
+  if (pops.some((f) => f.text === text && f.t < 0.35)) return;                    // never the same word stacked on itself
+  if (pops.length > 8) { pops[0].el.remove(); pops.shift(); }
   const el = document.createElement("div"); el.className = "pop" + (big ? " big" : ""); el.textContent = T(text); el.style.color = color; fxEl.appendChild(el);
-  pops.push({ el, x, y, z, t: 0, life: big ? 1.2 : 0.9 });
+  pops.push({ el, text, x, y, z, t: 0, life: big ? 1.2 : 0.9 });
 }
 const say = (p, text, color = "#fff", big = false) => pop(text, p.x, p.y + 2.6, p.z, color, big);
 const v3 = new THREE.Vector3();
@@ -295,7 +298,7 @@ function release(p) {
   const Tt = 0.7 + d * 0.06;
   Object.assign(ball, { owner: null, live: true, shooter: p, made, t: 0, T: Tt, pts: d > THREE_R ? 3 : 2, resolved: false, x: sx, y: sy, z: sz, quality: q,
     vx: (tx - sx) / Tt, vy: (ty - sy + 0.5 * BALL_G * Tt * Tt) / Tt, vz: (tz - sz) / Tt });
-  sfx.whoosh();
+  sfx.whoosh(); p.followT = 0.4;
   if (q === "perfect") { say(p, "PERFECT", "#5ad84a"); sfx.perfect(); fx.flash(sx, sy, sz, "#5ad84a", 1.3, 0.2); fx.burst(sx, sy, sz, 10, ["#5ad84a", "#ffffff"], 2.5, 0.4, { floor: false, g: 2 }); fx.impact({ stop: 0.04 }); }
   else if (q === "good") say(p, "GOOD", "#ffe03c"); else say(p, `${T(q === "early" ? "EARLY" : "LATE")} ${Math.abs(ms)}ms`, "#ff3a4a");
   if (cont >= 0.5) say(def, "CONTEST", "#ffe03c");
@@ -348,9 +351,23 @@ function heldPos(p) {
   if (p.dunk || p.hang > 0) return [p.x + fx_ * 0.25, p.y + 2.25, p.z + fz * 0.25];
   if (p.shooting || p.gather > 0) return [p.x + fx_ * 0.15, p.y + 2.15, p.z + fz * 0.15];
   if (p.fakeT > 0.25) return [p.x + fx_ * 0.12, p.y + 2.35, p.z + fz * 0.12];   // the fake: ball high over his head
-  if (!p.onGround) return [p.x + fx_ * 0.35, p.y + 1.2, p.z + fz * 0.35];
-  const ph = Math.abs(Math.sin(worldT * (p.dashT > 0 ? 16 : 9)));
-  return [p.x + fx_ * 0.4 + sx * 0.2, 1.0 - ph * 0.85, p.z + fz * 0.4 + sz * 0.2];
+  if (!p.onGround) return [p.x + fx_ * 0.35 + sx * 0.25 * p.hand, p.y + 1.25, p.z + fz * 0.35 + sz * 0.25 * p.hand];
+  // the dribble: down from the ball hand and back up into it; a crossover carries it low across the front
+  if (p.crossT > 0) {
+    const k = 1 - p.crossT / 0.18, side = (-p.hand + 2 * p.hand * k) * 0.32;
+    return [p.x + fx_ * 0.42 + sx * side, 0.2 + Math.abs(Math.sin(k * Math.PI)) * 0.15, p.z + fz * 0.42 + sz * side];
+  }
+  const ph = dribbleLow(p);
+  return [p.x + fx_ * 0.36 + sx * 0.32 * p.hand, 0.95 - ph * 0.8, p.z + fz * 0.36 + sz * 0.32 * p.hand];
+}
+const dribbleLow = (p) => Math.abs(Math.sin(worldT * (p.dashT > 0 ? 16 : 9) + p.i));   // 0 at the top of the bounce, 1 on the floor
+// keep the ball on the side away from the defender: switch hands at the top of a bounce, with a crossover
+function protectBall(p, dt) {
+  p.crossT = Math.max(0, p.crossT - dt);
+  if (ball.owner !== p || !p.onGround || p.shooting || p.gather > 0 || p.crossT > 0) return;
+  const d = other(p), [fx_, fz] = p.face, lat = (d.x - p.x) * -fz + (d.z - p.z) * fx_;
+  const want = flat(p, d) < 3 && Math.abs(lat) > 0.15 ? (lat > 0 ? -1 : 1) : p.hand;
+  if (want !== p.hand && dribbleLow(p) < 0.3) { p.hand = want; p.crossT = 0.18; }
 }
 let wasLow = false;
 function updateBall(dt) {
@@ -366,7 +383,7 @@ function updateBall(dt) {
     const s = ball.shooter, d = s && other(s);
     // a block: a defender in the air meets it on the way up
     if (d && ball.t < 0.35 && ball.vy > 0 && !d.onGround && flat(ball, d) < (isTouch && d.i === 0 ? 0.95 : 0.75) && ball.y > d.y + 1.2 && ball.y < d.y + 2.7) {
-      ball.live = false; const [ox, oz] = norm(ball.x - d.x, ball.z - d.z); ball.vx = ox * 2 + d.face[0] * 3; ball.vz = oz * 2 + d.face[1] * 3; ball.vy = -1;
+      ball.live = false; ball.lastShooter = s; ball.noCatchT = 0.45; s.shooting = false; const [ox, oz] = norm(ball.x - d.x, ball.z - d.z); ball.vx = ox * 2 + d.face[0] * 3; ball.vz = oz * 2 + d.face[1] * 3; ball.vy = -1;
       say(d, "BLOCK!", "#ffe03c", true); sfx.block(); hype = 1;
       fx.flash(ball.x, ball.y, ball.z, "#ffffff", 2.4, 0.2); fx.halo(ball.x, ball.y, ball.z, d.ch.col, 1.4, 0.3); fx.burst(ball.x, ball.y, ball.z, 22, [d.ch.col, "#ffe03c", "#ffffff"], 4.5, 0.6);
       fx.impact({ stop: 0.12, slow: 0.3, shake: 0.45, punch: 0.6 }); return;
@@ -387,16 +404,25 @@ function updateBall(dt) {
   if (Math.abs(ball.z) > HALF_W - 0.3) { ball.z = Math.sign(ball.z) * (HALF_W - 0.3); ball.vz *= -0.5; }
   if (ball.live || phase !== "play") return;
   // a loose ball: whoever gets a hand on it (in the air too)
+  // (the shooter can't grab his own blocked or rimmed shot for a moment, and a catch ends his shot: no shoot-block-catch
+  // loop in one frame after another)
+  ball.noCatchT = Math.max(0, (ball.noCatchT ?? 0) - dt);
   for (const p of players) {
-    if (p.fallen > 0 || p.stun > 0 || p.dunk || p.hang > 0) continue;
-    if (flat(ball, p) < 0.6 && ball.y < p.y + 2.5 && ball.y > p.y - 0.1) { ball.owner = p; p.ai.plan = null; if (!p.onGround && ball.y > 1.6) { say(p, "MINE", "#ffe03c"); fx.flash(ball.x, ball.y, ball.z, "#ffffff", 1, 0.12); } break; }
+    if (p.fallen > 0 || p.stun > 0 || p.dunk || p.hang > 0 || (ball.noCatchT > 0 && p === ball.lastShooter)) continue;
+    if (flat(ball, p) < 0.6 && ball.y < p.y + 2.5 && ball.y > p.y - 0.1) {
+      ball.owner = p; p.ai.plan = null; p.shooting = false; p.gather = 0; p.fakeT = 0;
+      if (!p.onGround && ball.y > 1.6) { say(p, "MINE", "#ffe03c"); fx.flash(ball.x, ball.y, ball.z, "#ffffff", 1, 0.12); }
+      break;
+    }
   }
 }
 
 // ---------- a baller's frame ----------
 function updatePlayer(p, c, dt) {
   const opp = other(p);
-  for (const k of ["cd", "whiff", "dashCd", "landT", "dunkWin", "celebrate"]) p[k] -= dt;
+  for (const k of ["cd", "whiff", "dashCd", "landT", "dunkWin", "celebrate", "followT"]) p[k] -= dt;
+  p.landA = Math.max(0, p.landA - dt * 5);
+  protectBall(p, dt);
   p.stam = Math.min(1, p.stam + dt * 0.3);
   if (p.hang > 0) { p.hang -= dt; if (p.hang <= 0) { p.vy = -1; fx.dust(p.x, p.z, 6); } return; }
   if (p.dunk) { updateDunk(p, dt); return; }
@@ -441,7 +467,7 @@ function updatePlayer(p, c, dt) {
   }
   const wasAir = !p.onGround, fallV = p.vy;
   p.vy -= G * dt; p.x += p.vx * dt; p.z += p.vz * dt; p.y += p.vy * dt;
-  if (p.y <= 0) { p.y = 0; p.vy = 0; p.onGround = true; if (wasAir && fallV < -4) { if (p.fallen <= 0) p.landT = 0.2; fx.dust(p.x, p.z, fallV < -7 ? 10 : 4); } } else p.onGround = false;
+  if (p.y <= 0) { p.y = 0; p.vy = 0; p.onGround = true; if (wasAir && fallV < -4) { if (p.fallen <= 0) p.landT = 0.2; p.landA = 1; fx.dust(p.x, p.z, fallV < -7 ? 10 : 4); } } else p.onGround = false;
   p.x = clamp(p.x, -HALF_L + 0.3, HALF_L - 0.3); p.z = clamp(p.z, -HALF_W + 0.3, HALF_W - 0.3);
 }
 
@@ -675,7 +701,10 @@ function drawStage(dt) {
     f.b.root.position.z += ((on ? 0.7 : 0) - f.b.root.position.z) * Math.min(1, dt * 8);
     f.b.root.position.y = lockedOn ? Math.abs(Math.sin(worldT * 12)) * 0.25 : 0;
     f.b.root.rotation.y = -Math.PI / 2 + (on ? Math.sin(worldT * 1.5) * 0.35 : 0);
-    animate(f.b, { speed: 0, walk: 0, air: false, dance: on, t: worldT + i });
+    animate(f.b, { speed: 0, walk: 0, air: false, dance: lockedOn, dribble: on && !lockedOn ? { hand: 1, low: Math.abs(Math.sin(worldT * 7)) } : null, mood: on ? "happy" : "calm", t: worldT + i });
+    // the one you're on dribbles a ball of his own
+    if (on && !lockedOn) stageBall.position.set(f.b.root.position.x - 0.32, 0.95 - Math.abs(Math.sin(worldT * 7)) * 0.8, f.b.root.position.z + 0.36);
+    if (on) stageBall.visible = !lockedOn;
     f.spot.material.opacity = on ? 0.6 + Math.sin(worldT * 6) * 0.15 : 0.18; f.spot.position.z = f.b.root.position.z;
   });
   if (locked && Math.random() < 0.5) { const f = stageFigs[pickI]; }
@@ -688,8 +717,16 @@ function draw(dt) {
     b.root.position.set(p.x, p.y, p.z); b.root.rotation.y = Math.atan2(-p.face[1], p.face[0]);
     p.walk += spd * dt;
     const up = p.shooting || p.gather > 0 || p.fakeT > 0.2 || !!p.dunk || p.hang > 0;
-    animate(b, { speed: spd, walk: p.walk, air: !p.onGround, up, block: !p.onGround && !up && ball.owner !== p, reach: p.whiff > 0 || p.cd > 0.5,
-      fall: p.fallen > 0, lean: p.dashT > 0 ? -0.3 : p.whiff > 0 ? -0.35 : 0, toes: p.fakeT > 0.25, dance: p.celebrate > 0 || p.winner, t: worldT });
+    const has = ball.owner === p, guarding = ball.owner === other(p) && p.onGround && p.fallen <= 0 && p.dashT <= 0 && p.whiff <= 0;
+    const dribbling = has && p.onGround && !up && p.dashT <= 0.05;
+    animate(b, {
+      speed: spd, walk: p.walk, air: !p.onGround && !p.dunk && p.hang <= 0, guard: guarding,
+      dribble: dribbling ? { hand: p.hand, low: p.crossT > 0 ? 1 : dribbleLow(p) } : null,
+      shoot: p.shooting || p.gather > 0 || p.fakeT > 0.2, follow: p.followT > 0 && !has ? p.followT : 0, dunk: !!p.dunk, hang: p.hang > 0,
+      block: !p.onGround && !up && !has && !p.dunk && p.followT <= 0, reach: p.whiff > 0 || p.cd > 0.5, fall: p.fallen > 0,
+      dash: p.dashT > 0, toes: p.fakeT > 0.25, dance: p.celebrate > 0 || p.winner, land: p.landA,
+      mood: p.fallen > 0 || p.stun > 0 || p.loser ? "hurt" : p.celebrate > 0 || p.winner ? "happy" : "calm", t: worldT,
+    });
   }
   ballMesh.position.set(ball.x, ball.y, ball.z);
   for (const [k, n] of nets.entries()) { netT[k] = Math.max(0, netT[k] - dt * 2); n.scale.y = 1 + netT[k] * 0.6; n.position.y = RIM_Y - 0.24 - netT[k] * 0.12; }

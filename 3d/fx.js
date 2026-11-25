@@ -43,6 +43,7 @@ export function createFx(scene) {
   })();
   const flashes = [];
   fx.flash = (x, y, z, c = "#ffffff", size = 1.2, life = 0.18) => {
+    if (flashes.length > 6) return;                                              // a few at once, never a white-out
     const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: starTex, color: c, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending }));
     s.position.set(x, y, z); s.renderOrder = 7; scene.add(s); flashes.push({ s, size, t: 0, life });
   };
