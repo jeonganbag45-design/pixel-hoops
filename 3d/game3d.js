@@ -4,6 +4,7 @@
 import * as THREE from "three";
 import { CHARS, makeBaller, animate, mat } from "./models.js";
 import { createFx } from "./fx.js";
+import { initPix, pix, updatePix, clearPix, PFX } from "./pixfx.js";
 // from the three.js repo's addons: a post-process that renders the scene as pixel art, with light and dark pixel edges
 // where surfaces meet (github.com/mrdoob/three.js, examples/jsm/postprocessing)
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
@@ -51,7 +52,7 @@ const canvas = document.getElementById("c");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
 renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5));                    // capped, for the phone's battery
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
+renderer.toneMapping = THREE.NoToneMapping;                                    // flat, punchy color for the cel shading
 const scene = new THREE.Scene();
 scene.background = new THREE.Color("#0a0e1c"); scene.fog = new THREE.Fog("#0a0e1c", 34, 70);
 const camera = new THREE.PerspectiveCamera(32, 16 / 9, 0.1, 140);
@@ -82,6 +83,8 @@ sun.position.set(-6, 20, 12); sun.castShadow = true; sun.shadow.mapSize.set(2048
 Object.assign(sun.shadow.camera, { left: -16, right: 16, top: 10, bottom: -10, near: 1, far: 60 });
 scene.add(sun);
 const fx = createFx(scene);
+initPix(scene);
+const FIRE_PAL = ["#2a0602", "#7a1408", "#d8301a", "#ff6a1a", "#ffb02a", "#ffe86a", "#ffffff"];
 
 // ---------- the arena ----------
 const HALF_L = 14, HALF_W = 7.5, RIM_X = 12.42, RIM_Y = 3.05, THREE_R = 6.75, BR = 0.26, RIM_R = 0.4;
@@ -115,7 +118,7 @@ let jumbo = null;
     if (s > 0) g.arc(X(rx), Z(0), THREE_R * px, Math.PI + a, Math.PI - a, true); else g.arc(X(rx), Z(0), THREE_R * px, -a, a, false);
     g.lineTo(X(base), Z(cz)); g.stroke();
   }
-  g.fillStyle = "#ffffff"; g.font = "italic 900 92px system-ui, 'Segoe UI', sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("HOOPS", X(0), Z(0));
+  g.font = "104px Impact, 'Arial Black', sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.lineWidth = 12; g.strokeStyle = "#14111c"; g.strokeText("HOOPS", X(0), Z(0)); g.fillStyle = "#ffd21f"; g.fillText("HOOPS", X(0), Z(0)); g.lineWidth = 5; g.strokeStyle = "#fbf6ea";
   const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(HALF_L * 2, HALF_W * 2), new THREE.MeshLambertMaterial({ map: tex }));
   floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
@@ -123,7 +126,7 @@ let jumbo = null;
   // courtside: an LED board along the far side, padded
   const ledCv = document.createElement("canvas"); ledCv.width = 1024; ledCv.height = 40; const lg = ledCv.getContext("2d");
   const lgr = lg.createLinearGradient(0, 0, 1024, 0); lgr.addColorStop(0, "#ff7a1a"); lgr.addColorStop(0.5, "#ffd23f"); lgr.addColorStop(1, "#ff7a1a");
-  lg.fillStyle = "#0a0e1c"; lg.fillRect(0, 0, 1024, 40); lg.fillStyle = lgr; lg.font = "italic 900 26px system-ui, 'Segoe UI', sans-serif"; lg.textBaseline = "middle";
+  lg.fillStyle = "#0a0e1c"; lg.fillRect(0, 0, 1024, 40); lg.fillStyle = lgr; lg.font = "28px Impact, 'Arial Black', sans-serif"; lg.textBaseline = "middle";
   lg.fillText("HOOPS 3D  •  1 ON 1 STREETBALL  •  NO REFS, NO RULES  •  ", 8, 21);
   const ledTex = new THREE.CanvasTexture(ledCv); ledTex.colorSpace = THREE.SRGBColorSpace; ledTex.wrapS = THREE.RepeatWrapping; ledTex.repeat.set(3, 1);
   const led = new THREE.Mesh(new THREE.BoxGeometry(36, 0.7, 0.3), [mat("#14101f"), mat("#14101f"), mat("#14101f"), mat("#14101f"), new THREE.MeshBasicMaterial({ map: ledTex }), mat("#14101f")]);
@@ -337,7 +340,8 @@ function trySteal(p, opp) {
   const dx = p.x - opp.x, dz = p.z - opp.z, d = Math.hypot(dx, dz) || 1, [bx, by, bz] = heldPos(opp);
   looseBall(opp, (dx / d) * 2.5, 3, (dz / d) * 2.5); opp.stun = 0.45;
   say(p, "STEAL!", "#ffe03c", true); sfx.steal(); hype = Math.max(hype, 0.6); gainSp(p, 0.15);
-  if (p.ch.name === "SHADE") { fx.vortex(bx, by, bz, 0.5, 0.35); say(p, "STICKY HANDS", p.ch.col); }
+  pix(PFX.hitSpark, [bx, by, bz], { ground: false, w: 96, h: 96, flip: dx < 0 });
+  if (p.ch.name === "SHADE") { pix(PFX.shadowTendrils, [bx, 0, bz], { w: 112, h: 96, life: 0.6 }); say(p, "STICKY HANDS", p.ch.col); }
   fx.flash(bx, by, bz, "#ffe03c", 1.4, 0.18); fx.halo(bx, by, bz, p.ch.col, 0.9, 0.3); fx.burst(bx, by, bz, 14, [p.ch.col, "#ffe03c", "#ffffff"], 3.5, 0.5);
   fx.impact({ stop: 0.07, shake: 0.2, punch: 0.3 });
 }
@@ -382,7 +386,7 @@ function updateDunk(p, dt) {
     p.hang = 0.4; Object.assign(ball, { owner: null, live: false, shooter: null, x: h.x, y: RIM_Y - 0.1, z: 0, vx: 0, vy: -3, vz: 0 });
     rims[side].wob = 1.5;
     const glass = Math.random() < 0.12;
-    fx.ring(h.x, 0, "#ffffff", 4, 0.5); fx.ring(h.x, 0, p.ch.col, 3, 0.4); fx.flash(h.x, RIM_Y, 0, "#ffffff", 3, 0.2);
+    pix(PFX.groundSlam, [h.x - p.dir * 0.6, 0, 0], { w: 192, h: 128 }); pix(PFX.critHit, [h.x, RIM_Y, 0], { ground: false, w: 128, h: 128 }); fx.ring(h.x, 0, p.ch.col, 3, 0.4);
     fx.burst(h.x, RIM_Y, 0, 20, [p.ch.col, "#ffe03c", "#ffffff"], 5, 0.7); fx.dust(h.x - p.dir * 0.5, 0, 14);
     if (glass) {
       boards[side].visible = false; sfx.glass(); fx.burst(p.dir * 13, 3.5, 0, 70, ["#c8e8ff", "#ffffff", "#8cc8f0"], 6, 1.5, { size: 0.1 });
@@ -404,7 +408,8 @@ function score(p, pts, word) {
   sfx.swish(); sfx.cheer(); netT[p.dir > 0 ? 1 : 0] = 1;
   // fireworks over the hoop: one for a basket, three for a three or a dunk
   const n = pts >= 3 || word !== "NICE!" && word !== "SWISH!" ? 3 : 1;
-  for (let i = 0; i < n; i++) later(0.15 + i * 0.25, () => { const x = h.x - p.dir * rnd(1, 4), y = rnd(6, 8.5), z = rnd(-3, -1); fx.burst(x, y, z, 30, [p.ch.col, "#ffe03c", "#ffffff"], 4, 1, { floor: false, g: 2, size: 0.1 }); fx.flash(x, y, z, p.ch.col, 2.5, 0.25); sfx.firework(); });
+  for (let i = 0; i < n; i++) later(0.15 + i * 0.25, () => { const x = h.x - p.dir * rnd(1, 4), y = rnd(6, 8.5), z = rnd(-3, -1); pix(PFX.firework, [x, y, z], { ground: false, w: 160, h: 160, scale: 1.3 }); sfx.firework(); });
+  pix(PFX.collect, [h.x, RIM_Y - 0.2, h.z], { ground: false, w: 96, h: 96 });
   if (!(ball.made === false)) fx.burst(h.x, RIM_Y - 0.4, h.z, 8, "#e6e1ee", 1.5, 0.4, { g: 4 });
 }
 const netT = [0, 0];
@@ -461,7 +466,7 @@ function updateBall(dt) {
     if (d && ball.t < 0.35 && ball.vy > 0 && !d.onGround && flat(ball, d) < (isTouch && d.i === 0 ? 1.05 : 0.85) && ball.y > d.y + 1.2 && ball.y < d.y + 2.7) {
       ball.live = false; ball.lastShooter = s; ball.noCatchT = 0.45; s.shooting = false; const [ox, oz] = norm(ball.x - d.x, ball.z - d.z); ball.vx = ox * 2 + d.face[0] * 3; ball.vz = oz * 2 + d.face[1] * 3; ball.vy = -1;
       say(d, "BLOCK!", "#ffe03c", true); sfx.block(); hype = 1; gainSp(d, 0.15);
-      fx.flash(ball.x, ball.y, ball.z, "#ffffff", 2.4, 0.2); fx.halo(ball.x, ball.y, ball.z, d.ch.col, 1.4, 0.3); fx.burst(ball.x, ball.y, ball.z, 22, [d.ch.col, "#ffe03c", "#ffffff"], 4.5, 0.6);
+      pix(PFX.critHit, [ball.x, ball.y, ball.z], { ground: false, w: 128, h: 128 }); fx.burst(ball.x, ball.y, ball.z, 10, [d.ch.col, "#ffe03c", "#ffffff"], 4.5, 0.6);
       fx.impact({ stop: 0.12, slow: 0.3, shake: 0.45, punch: 0.6 }); return;
     }
     if (ball.t >= ball.T && !ball.resolved) {
@@ -514,7 +519,7 @@ function dribbleMove(p) {
     case "BLAZE": {
       p.hand = -p.hand; p.crossT = 0.18; p.safeT = 0.35; p.moveT = 0.18; p.boostT = 1.2;
       p.moveV = [sx * p.hand * 7 + toHoop[0] * 2, sz * p.hand * 7 + toHoop[1] * 2];
-      fx.ring(p.x, p.z, "#ff9a2a", 1.6, 0.35); fx.burst(p.x, 0.5, p.z, 14, ["#ff4a2a", "#ff9a2a", "#ffe03c"], 3, 0.5);
+      pix(PFX.fireRing, [p.x, 0, p.z], { w: 160, h: 80, scale: 0.7 }); fx.burst(p.x, 0.5, p.z, 10, ["#ff4a2a", "#ff9a2a", "#ffe03c"], 3, 0.5);
       if (close && d.fallen <= 0) { d.stun = 0.3; fx.flash(d.x, 1.6, d.z, "#ff9a2a", 1.4, 0.15); }
       sfx.whoosh(); sfx.bounce(); break;
     }
@@ -523,7 +528,7 @@ function dribbleMove(p) {
       const m = new THREE.Mesh(new THREE.CircleGeometry(1.1, 16), new THREE.MeshLambertMaterial({ color: "#bfefff", transparent: true, opacity: 0.75 }));
       m.rotation.x = -Math.PI / 2; m.position.set(p.x, 0.025, p.z); scene.add(m); patches.push({ x: p.x, z: p.z, t: 3, mesh: m, from: p });
       p.moveT = 0.22; p.moveV = [away[0] * 6.5, away[1] * 6.5]; p.openT = 1.2; p.face = toHoop;
-      fx.burst(p.x, 0.3, p.z, 16, ["#a6ecff", "#ffffff"], 2.5, 0.5); sfx.whoosh(); break;
+      pix(PFX.frostNova, [p.x, 0, p.z], { w: 160, h: 96, scale: 0.8 }); sfx.whoosh(); break;
     }
     case "VOLT": {
       // which way: the way he's pushing the stick sideways, else away from the defender
@@ -531,26 +536,26 @@ function dribbleMove(p) {
       const ox = p.x, oz = p.z; fx.ghost(p.body.root, p.ch.col);
       p.x = clamp(p.x + sx * side * 2.6 + toHoop[0] * 0.8, -HALF_L + 0.3, HALF_L - 0.3); p.z = clamp(p.z + sz * side * 2.6 + toHoop[1] * 0.8, -HALF_W + 0.3, HALF_W - 0.3);
       p.hand = side; p.safeT = 0.4;
-      fx.bolt(ox, 1, oz, p.x, 1, p.z, "#fff6a0", 0.25); fx.ring(p.x, p.z, "#fff6a0", 1.4, 0.3); noise(0.08, 0.12, 5000); beep(1400, 0.06, "square", 0.04, -600); break;
+      pix(PFX.blinkOut, [ox, 0, oz], { w: 96, h: 112 }); pix(PFX.blinkIn, [p.x, 0, p.z], { w: 96, h: 112 }); noise(0.08, 0.12, 5000); beep(1400, 0.06, "square", 0.04, -600); break;
     }
     case "TANK": {
       p.moveT = 0.3; p.moveV = [toHoop[0] * 4.2, toHoop[1] * 4.2]; p.safeT = 0.45; p.face = toHoop;
       const ahead = (d.x - p.x) * toHoop[0] + (d.z - p.z) * toHoop[1];
       if (flat(p, d) < 1.5 && ahead > 0 && d.fallen <= 0) {
         d.vx = toHoop[0] * 6; d.vz = toHoop[1] * 6; d.stun = 0.4; say(d, "BULLDOZED!", "#ff3a4a");
-        fx.ring(d.x, d.z, p.ch.col, 1.8, 0.35); fx.dust(d.x, d.z, 14); fx.impact({ stop: 0.08, shake: 0.4, punch: 0.3 }); beep(60, 0.25, "sine", 0.25, -20);
+        pix(PFX.bluntHit, [d.x, 1.2, d.z], { ground: false, w: 96, h: 96 }); fx.dust(d.x, d.z, 14); fx.impact({ stop: 0.08, shake: 0.4, punch: 0.3 }); beep(60, 0.25, "sine", 0.25, -20);
       }
       fx.dust(p.x, p.z, 10); break;
     }
     case "SHADE": {
       const decoy = fx.ghost(p.body.root, "#9a7cff"); decoy.userData.decoy = true;
       p.phantomT = 1.0; p.safeT = 1.0; p.decoy = { x: p.x, z: p.z, t: 0.9 };
-      fx.vortex(p.x, 1, p.z, 0.5, 0.5); beep(600, 0.4, "sine", 0.05, -400); break;
+      pix(PFX.smokeBomb, [p.x, 0, p.z], { w: 160, h: 112 }); beep(600, 0.4, "sine", 0.05, -400); break;
     }
     case "GRAMPS": {
       p.hesiT = 0.35; p.boostT = 1.1; p.moveT = 0;
-      if (flat(p, d) < 2.4 && d.fallen <= 0) { d.stun = 0.6; pop("?", d.x, d.y + 2.6, d.z, "#ffe03c", true); }
-      beep(1568, 0.3, "sine", 0.05); fx.clock(p.x, 1.2, p.z, 0.9, 0.5); break;
+      if (flat(p, d) < 2.4 && d.fallen <= 0) { d.stun = 0.6; pix(PFX.exclamation, [d.x, 0, d.z], { follow: d, w: 64, h: 128, life: 0.7 }); }
+      beep(1568, 0.3, "sine", 0.05); break;
     }
   }
 }
@@ -573,6 +578,7 @@ function trySpecial(p) {
   other(p).ai.dodge = Math.random() < TUNE.cpuDodge;
   beep(180, WIND_UP, "sawtooth", 0.045, 520); noise(WIND_UP, 0.06, 900);
   fx.impact({ slow: 0.25, punch: 0.4 }); fx.ring(p.x, p.z, p.ch.col, 2.2, 0.6);
+  pix(p.ch.name === "VOLT" ? PFX.chargeUp : PFX.spellCharge, [p.x, 0, p.z], { follow: p, w: 112, h: 128, life: TUNE.windUp, palette: p.ch.name === "BLAZE" ? FIRE_PAL : undefined });
   cutinEl.style.setProperty("--c", p.ch.col); cutinEl.style.setProperty("--d", p.ch.dark);
   cutinEl.innerHTML = `<i></i><div><span class="tag">${T("SKILL")}</span><b>${T(p.ch.special)}</b><small>${p.name}</small></div>`;
   cutinEl.className = p.i ? "ui r on" : "ui on"; clearTimeout(cutinEl.t); cutinEl.t = setTimeout(() => (cutinEl.className = p.i ? "ui r" : "ui"), 900);
@@ -594,22 +600,24 @@ function dangerFor(me) {
   const t = teeth.find((t) => t.from === o && flat(t, me) < 4 && ((me.x - t.x) * t.vx + (me.z - t.z) * t.vz) > 0);
   return t ? { how: "JUMP!", left: flat(t, me) / 4 } : null;
 }
-function freeze(o, t, kind) { o.frozen = t; o.frozenKind = kind; o.vx = o.vz = 0; o.dunk = null; o.shooting = false; o.gather = 0; if (ball.owner === o) looseBall(o, 0, 1, 0); }
+function freeze(o, t, kind) { if (kind === "ice") pix(PFX.freeze, [o.x, 0, o.z], { w: 96, h: 128, life: t }); o.frozen = t; o.frozenKind = kind; o.vx = o.vz = 0; o.dunk = null; o.shooting = false; o.gather = 0; if (ball.owner === o) looseBall(o, 0, 1, 0); }
 function awaken(p, t = 0) {
-  p.fire = true; p.fireT = Math.max(p.fireT, t); say(p, "AWAKENED!", "#ff9a2a", true); fx.pillar(p.x, p.z, "#ff6a1a", 3.5, 0.7, 0.7);
+  p.fire = true; p.fireT = Math.max(p.fireT, t); say(p, "AWAKENED!", "#ff9a2a", true); pix(PFX.fireRing, [p.x, 0, p.z], { w: 192, h: 96 });
   fx.impact({ slow: 0.3, punch: 0.4 }); if (!t) say(p, "HOT HAND", p.ch.col);
 }
 const SPECIALS = {
   BLAZE(p) {
     const o = other(p), d = flat(p, o);
-    fx.pillar(p.x, p.z, "#ff6a1a", 6, 1.3, 1.4); fx.ring(p.x, p.z, "#ff9a2a", 4, 0.5); awaken(p, 10);
+    pix(PFX.flamePillar, [p.x, 0, p.z], { w: 128, h: 192, life: 1.3 }); fx.ring(p.x, p.z, "#ff9a2a", 4, 0.5); awaken(p, 10);
     if (d < 3.2) { const [nx, nz] = norm(o.x - p.x, o.z - p.z); o.fallen = 1; o.vx = nx * 7; o.vz = nz * 7; o.vy = 5; o.onGround = false; if (ball.owner === o) looseBall(o, nx * 3, 4, nz * 3); }
     else if (d < 5) say(o, "DODGED", "#ffe03c");
     pop("INFERNO!", p.x, p.y + 3.4, p.z, "#ff9a2a", true); fx.impact({ stop: 0.1, shake: 0.7, punch: 0.8 }); noise(0.6, 0.25, 400); beep(55, 0.5, "sawtooth", 0.12, -20);
   },
   FROST(p) {
     const o = other(p), [dx, dz] = norm(o.x - p.x, o.z - p.z);
-    fx.spikes(p.x, p.z, dx, dz, 13); pop("FROZEN!", p.x, p.y + 3.4, p.z, "#a6ecff", true);
+    // the spikes race along the floor toward him, a burst every few steps
+    for (let k = 0; k < 5; k++) later(k * 0.05, () => pix(PFX.iceSpikes, [p.x + dx * (1.6 + k * 2.4), 0, p.z + dz * (1.6 + k * 2.4)], { w: 128, h: 96, flip: dx < 0 }));
+    pop("FROZEN!", p.x, p.y + 3.4, p.z, "#a6ecff", true);
     for (let i = 0; i < 6; i++) beep(rnd(1800, 3200), 0.12, "triangle", 0.03, 0, i * 0.05);
     later(0.1, () => {
       const along = (o.x - p.x) * dx + (o.z - p.z) * dz, side = Math.abs((o.x - p.x) * -dz + (o.z - p.z) * dx);
@@ -620,20 +628,21 @@ const SPECIALS = {
   VOLT(p) {
     const o = other(p), h = hoop(p);
     if (ball.owner === p) {
-      fx.bolt(p.x, 10, p.z, p.x, 0, p.z); p.x = h.x - p.dir * 2.4; p.z = 0; p.face = [p.dir, 0]; p.dashV = [p.dir, 0]; fx.bolt(p.x, 10, p.z, p.x, 0, p.z);
-      if (flat(p, o) < 1.8) { if (o.onGround) { o.stun = 0.8; say(o, "ZAPPED!", "#fff6a0"); } else say(o, "DODGED", "#fff6a0"); }
+      pix(PFX.blinkOut, [p.x, 0, p.z], { w: 96, h: 112 }); p.x = h.x - p.dir * 2.4; p.z = 0; p.face = [p.dir, 0]; p.dashV = [p.dir, 0]; pix(PFX.lightning, [p.x, 0, p.z], { w: 112, h: 224 });
+      if (flat(p, o) < 1.8) { if (o.onGround) { o.stun = 0.8; say(o, "ZAPPED!", "#fff6a0"); pix(PFX.zapHit, [o.x, 1.2, o.z], { ground: false, w: 96, h: 96 }); } else say(o, "DODGED", "#fff6a0"); }
       startDunk(p);
     } else {
       const tx = ball.owner === o ? o.x + o.face[0] * 0.8 : ball.x, tz = ball.owner === o ? o.z + o.face[1] * 0.8 : ball.z;
-      fx.bolt(p.x, 10, p.z, p.x, 0, p.z); p.x = clamp(tx, -HALF_L + 0.3, HALF_L - 0.3); p.z = clamp(tz, -HALF_W + 0.3, HALF_W - 0.3); fx.bolt(o.x, 10, o.z, o.x, 1, o.z);
-      if (ball.owner === o) { if (o.onGround) { o.stun = 0.9; looseBall(o, (p.x - o.x) * 2, 3, (p.z - o.z) * 2); say(o, "ZAPPED!", "#fff6a0"); } else say(o, "DODGED", "#fff6a0"); }
+      pix(PFX.blinkOut, [p.x, 0, p.z], { w: 96, h: 112 }); p.x = clamp(tx, -HALF_L + 0.3, HALF_L - 0.3); p.z = clamp(tz, -HALF_W + 0.3, HALF_W - 0.3); pix(PFX.lightning, [o.x, 0, o.z], { w: 112, h: 224 });
+      if (ball.owner === o) { if (o.onGround) { o.stun = 0.9; looseBall(o, (p.x - o.x) * 2, 3, (p.z - o.z) * 2); say(o, "ZAPPED!", "#fff6a0"); pix(PFX.zapHit, [o.x, 1.2, o.z], { ground: false, w: 96, h: 96 }); } else say(o, "DODGED", "#fff6a0"); }
     }
     pop("THUNDER STEP!", p.x, p.y + 3.4, p.z, "#fff6a0", true); fx.impact({ stop: 0.1, shake: 0.5, punch: 0.6 }); noise(0.4, 0.2, 5000);
   },
   TANK(p) {
     const o = other(p);
     const shock = (big) => {
-      fx.ring(p.x, p.z, "#d8b48a", big ? 9 : 7, 0.6, 0.03, 0.08); fx.ring(p.x, p.z, p.ch.col, big ? 6 : 4, 0.45); fx.dust(p.x, p.z, big ? 30 : 18);
+      pix(PFX.quake, [p.x, 0, p.z], { w: 288, h: 112, scale: big ? 1.1 : 0.85 }); pix(PFX.groundSlam, [p.x, 0, p.z], { w: 192, h: 128, scale: big ? 1 : 0.8 });
+      fx.ring(p.x, p.z, "#d8b48a", big ? 9 : 7, 0.6, 0.03, 0.08); fx.dust(p.x, p.z, big ? 30 : 18);
       for (const r of rims) r.wob = big ? 1.2 : 0.8;
       if (o.onGround && o.fallen <= 0 && o.hang <= 0 && flat(p, o) < 10) { o.fallen = 1.6; o.vy = 3; o.onGround = false; if (ball.owner === o) looseBall(o, (p.x - o.x) * 0.4, 4, 0); }
       else if (o.fallen <= 0) say(o, "JUMPED IT", "#ffe03c");
@@ -645,7 +654,7 @@ const SPECIALS = {
   },
   SHADE(p) {
     const o = other(p);
-    fx.vortex(ball.x, ball.y + 0.3, ball.z, 1.3, 0.9); pop("BLACK HOLE!", p.x, p.y + 3.4, p.z, "#9a7cff", true); beep(600, 0.6, "sine", 0.06, -480);
+    pix(PFX.blackHole, [ball.x, ball.y + 0.2, ball.z], { ground: false, w: 128, h: 128, life: 1.3 }); pop("BLACK HOLE!", p.x, p.y + 3.4, p.z, "#9a7cff", true); beep(600, 0.6, "sine", 0.06, -480);
     if (ball.owner === o && (o.dashT > 0 || o.dashCd > 0)) { say(o, "DODGED", "#9a7cff"); return; }
     if (ball.owner === o) { o.stun = 0.5; looseBall(o, 0, 1, 0); }
     if (!ball.owner && !ball.live) { ball.homing = p; ball.homeT = 1.5; }
@@ -654,7 +663,7 @@ const SPECIALS = {
   GRAMPS(p) {
     const o = other(p);
     if (ball.owner === p) {
-      fx.clock(o.x, 1.4, o.z, 1.6, 1.4); pop("TIME OUT!", p.x, p.y + 3.4, p.z, "#e6e1ee", true);
+      pix(PFX.timeStop, [o.x, 1.3, o.z], { ground: false, w: 128, h: 128 }); pop("TIME OUT!", p.x, p.y + 3.4, p.z, "#e6e1ee", true);
       if (o.onGround) freeze(o, 2.4, "time"); else say(o, "DODGED", "#ffffff");
       p.granny = true; p.vx = p.vz = 0; p.face = norm(hoop(p).x - p.x, hoop(p).z - p.z);
       later(0.5, () => { if (ball.owner === p) { release(p, true); say(p, "GRANNY STYLE", "#ffe03c"); } p.granny = false; });
@@ -922,7 +931,7 @@ function showSelect() {
   selEl.style.display = "flex"; document.getElementById("help").style.display = "none"; document.getElementById("viewB").style.display = "none"; mouse.target = null;
   selEl.innerHTML = `<header><span class="brand">HOOPS <em>3D</em></span><h1>${T("CHOOSE YOUR BALLER")}</h1></header>
     <div id="tabs">${CHARS.map((c, i) => `<button class="tab" data-i="${i}" style="--c:${c.col}">${c.name}</button>`).join("")}</div>
-    <div id="card"></div><div id="selBtns"><button id="prevB" aria-label="prev">‹</button><button id="playB">${T("PLAY")}</button><button id="nextB" aria-label="next">›</button></div><small>${isTouch ? "" : LANG === "ko" ? KO.PICK : "← → OR A D TO PICK  ·  F / ENTER TO PLAY"}</small>`;
+    <div id="card"></div><div id="selBtns"><button id="prevB" aria-label="prev">&lt;</button><button id="playB">${T("PLAY")}</button><button id="nextB" aria-label="next">&gt;</button></div><small>${isTouch ? "" : LANG === "ko" ? KO.PICK : "← → OR A D TO PICK  ·  F / ENTER TO PLAY"}</small>`;
   selEl.querySelectorAll(".tab").forEach((b) => (b.onclick = () => { audio(); if (locked) return; if (pickI === +b.dataset.i) lockIn(); else { pickI = +b.dataset.i; sfx.click(); drawCard(); } }));
   document.getElementById("prevB").onclick = () => { audio(); if (!locked) { pickI = (pickI + 5) % 6; sfx.click(); drawCard(); } };
   document.getElementById("nextB").onclick = () => { audio(); if (!locked) { pickI = (pickI + 1) % 6; sfx.click(); drawCard(); } };
@@ -962,7 +971,7 @@ function newGame() {
   for (const t of teeth) scene.remove(t.mesh); teeth.length = 0;
   for (const pt of patches) scene.remove(pt.mesh); patches.length = 0;
   for (const p of players) Object.assign(p, { sp: 0.3, fire: false, fireT: 0, streak: 0, charge: null, frozen: 0 });
-  screen = "game"; fx.clear(); mouse.target = null;
+  screen = "game"; fx.clear(); clearPix(); for (const p of players) p.aura = null; mouse.target = null;
   document.activeElement?.blur?.();                                             // so Space shoots instead of pressing a button again
   for (const p of players) { p.score = 0; p.stam = 1; p.winner = p.loser = false; }
   clock = 60; overtime = false; phase = "countdown"; stateT = 0; lastScorer = null; jumbo.key = "";
@@ -973,7 +982,8 @@ function endGame() {
   phase = "over"; screen = "over"; sfx.whistle();
   const [a, b] = players, win = a.score === b.score ? null : a.score > b.score ? a : b;
   if (win) { win.winner = true; other(win).loser = true; other(win).fallen = 999; }
-  for (let i = 0; i < 6; i++) later(i * 0.2, () => fx.burst(rnd(-6, 6) + (win ? win.x * 0.5 : 0), 8, rnd(-3, 2), 40, ["#ff4a3a", "#ffe03c", "#5cc4ff", "#5ad84a", "#f53cd1", "#ffffff"], 3, 2.2, { g: 3, size: 0.12 }));
+  if (win) pix(PFX.confetti, [win.x, 0, win.z], { w: 256, h: 192, scale: 1.2 });
+  for (let i = 0; i < 3; i++) later(0.3 + i * 0.35, () => pix(PFX.firework, [rnd(-6, 6), rnd(6, 9), rnd(-3, -1)], { ground: false, w: 160, h: 160, scale: 1.4 }));
   centerEl.innerHTML = `<div class="result" style="--c:${win ? win.ch.col : "#ffffff"}"><span class="tag">FINAL</span><h2>${win ? `${win.name} ${T("WINS")}` : T("DRAW")}</h2>
     <div class="final"><span style="color:${a.ch.col}">${a.name}</span><b>${a.score}</b><i>:</i><b>${b.score}</b><span style="color:${b.ch.col}">${b.name}</span></div>
     <div class="row"><button id="again" class="primary">${T("REMATCH")}</button><button id="change">${T("CHANGE BALLERS")}</button><a href="../">${T("BACK TO 2D")}</a></div></div>`;
@@ -1054,6 +1064,9 @@ function draw(dt) {
     const b = p.body, spd = Math.hypot(p.vx, p.vz);
     b.root.position.set(p.x, p.y, p.z); b.root.rotation.y = Math.atan2(-p.face[1], p.face[0]) + (p.spinT > 0 ? (1 - p.spinT / 0.38) * Math.PI * 2 : 0);
     b.root.scale.setScalar(p.fire ? 1.12 : 1);
+    // BLAZE awakened: a pixel flame wraps him for as long as it lasts
+    if (p.fire && !p.aura) p.aura = pix(PFX.spiritFlame, [p.x, 0, p.z], { follow: p, off: [0, 1.1, 0], ground: false, w: 80, h: 112, scale: 1.3, palette: FIRE_PAL });
+    if (!p.fire && p.aura) { p.aura.stop(); p.aura = null; }
     b.root.visible = !(p.phantomT > 0) || Math.floor(worldT * 24) % 3 === 0;
     if (!p.iceBox) { p.iceBox = new THREE.Mesh(new THREE.BoxGeometry(1, 2.3, 1), new THREE.MeshLambertMaterial({ color: "#a6ecff", transparent: true, opacity: 0.55 })); b.root.add(p.iceBox); p.iceBox.position.y = 1.1; }
     p.iceBox.visible = p.frozen > 0; if (p.frozen > 0) p.iceBox.material.color.set(p.frozenKind === "time" ? "#c8c0dc" : "#a6ecff");
@@ -1163,7 +1176,7 @@ function frame(real) {
   let dt = real;
   if (fx.stop > 0) dt = 0; else if (fx.slow > 0) dt *= 0.35;
   step(dt); pressed.clear();
-  fx.update(dt, camera, real);
+  fx.update(dt, camera, real); updatePix(dt);
   if (screen === "over" && (keys.has("KeyR") || keys.has("Enter"))) { for (const p of players) p.fallen = 0; newGame(); }
   draw(real);
   devStats?.update();

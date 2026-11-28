@@ -19,10 +19,15 @@ export const CHARS = [
 ];
 export const INK = "#0d0a14";
 
+// cel shading: light falls in three hard bands (shadow, mid, lit), like an inked cartoon
+const TOON = (() => {
+  const t = new THREE.DataTexture(new Uint8Array([70, 70, 70, 255, 160, 160, 160, 255, 255, 255, 255, 255]), 3, 1, THREE.RGBAFormat);
+  t.minFilter = t.magFilter = THREE.NearestFilter; t.generateMipmaps = false; t.needsUpdate = true; return t;
+})();
 const mats = new Map();
 export const mat = (c, o = {}) => {
   const k = c + JSON.stringify(o);
-  if (!mats.has(k)) mats.set(k, new THREE.MeshLambertMaterial({ color: c, flatShading: true, ...o }));
+  if (!mats.has(k)) mats.set(k, new THREE.MeshToonMaterial({ color: c, gradientMap: TOON, ...o }));
   return mats.get(k);
 };
 const inkMat = new THREE.MeshBasicMaterial({ color: INK, side: THREE.BackSide });
@@ -33,7 +38,7 @@ function pixTex(w, h, draw) {
   const g = cv.getContext("2d"), px = (x, y, c, ww = 1, hh = 1) => { g.fillStyle = c; g.fillRect(x, y, ww, hh); };
   draw(px, g);
   const t = new THREE.CanvasTexture(cv); t.magFilter = t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace;
-  return new THREE.MeshLambertMaterial({ map: t, flatShading: true });
+  return new THREE.MeshToonMaterial({ map: t, gradientMap: TOON });
 }
 const shade = (hex, k) => { const c = new THREE.Color(hex); c.multiplyScalar(k); return "#" + c.getHexString(); };
 const DIGITS = { 0: "111101101101111", 1: "010110010010111", 3: "111001111001111", 4: "101101111001001", 7: "111001010010010", 9: "111101111001111" };
@@ -96,7 +101,7 @@ export function makeBaller(ch) {
   const box = (w, h, d, m, x, y, z, parent, ink = true) => {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), typeof m === "string" ? mat(m) : m);
     mesh.position.set(x, y, z); mesh.castShadow = true; parent.add(mesh);
-    if (ink) { const o = new THREE.Mesh(new THREE.BoxGeometry(w + 0.045, h + 0.045, d + 0.045), inkMat); o.position.copy(mesh.position); parent.add(o); mesh.userData.ink = o; }
+    if (ink) { const o = new THREE.Mesh(new THREE.BoxGeometry(w + 0.065, h + 0.065, d + 0.065), inkMat); o.position.copy(mesh.position); parent.add(o); mesh.userData.ink = o; }
     return mesh;
   };
   const turn = (m, rx = 0, ry = 0, rz = 0) => { m.rotation.set(rx, ry, rz); m.userData.ink?.rotation.set(rx, ry, rz); return m; };
@@ -186,8 +191,41 @@ export function makeBaller(ch) {
     }
   }
   if (ch.style === "old") skull.material[0] = faces.calm;
+  // ---- signature gear: what makes each one read at a glance ----
+  const tails = [];
+  const tail = (parent, c, x, y, z, w, h, d) => { const j = joint(parent, x, y, z); box(w, h, d, c, -w / 2, -h / 2, 0, j); tails.push(j); return j; };
+  switch (ch.name) {
+    case "BLAZE":
+      box(0.56, 0.08, 0.56, "#ffffff", 0, 0.15, 0, head);                                   // a white headband under the flames
+      box(0.57, 0.03, 0.57, ch.col, 0, 0.15, 0, head, false);
+      for (const part of [arms[0].shoulder, arms[0].elbow]) box(0.17, 0.24, 0.17, "#2a0a0a", 0, -0.1, 0, part);   // a black shooting sleeve
+      break;
+    case "FROST":
+      box(0.46, 0.14, 0.62, "#e6fbff", 0.02, 0.62, 0, spine);                               // a scarf round the neck...
+      box(0.05, 0.12, 0.3, "#5cc4ff", 0.24, 0.62, 0, spine, false);
+      tail(spine, "#e6fbff", -0.2, 0.62, 0.12, 0.42, 0.13, 0.12);                           // ...its end blowing back
+      break;
+    case "VOLT":
+      box(0.56, 0.07, 0.56, INK, 0, 0.2, 0, head);                                          // goggles up on the forehead
+      for (const z of [-0.12, 0.12]) box(0.07, 0.13, 0.15, mat("#5cc4ff", { emissive: "#5cc4ff", emissiveIntensity: 0.4 }), 0.27, 0.2, z, head);
+      break;
+    case "TANK":
+      for (const [x, z, w, d] of [[0.19, 0, 0.05, 0.5], [-0.19, 0, 0.05, 0.5], [0, 0.25, 0.4, 0.05], [0, -0.25, 0.4, 0.05]]) box(w, 0.05, d, "#ffd23f", x, 0.6, z, spine, false);
+      box(0.06, 0.16, 0.16, mat("#ffd23f", { emissive: "#ffb000", emissiveIntensity: 0.3 }), 0.22, 0.46, 0, spine);   // a gold chain and its medallion
+      for (const L of legs) box(0.21, 0.14, 0.21, "#1c1a24", 0.02, 0.0, 0, L.knee);         // knee pads
+      break;
+    case "SHADE":
+      tail(neck, ch.dark, -0.2, 0.02, -0.08, 0.6, 0.14, 0.12);                              // two ribbons off the hood, trailing
+      tail(neck, ch.col, -0.2, -0.02, 0.08, 0.5, 0.12, 0.1);
+      for (const A of arms) box(0.16, 0.16, 0.16, "#e6e1ee", 0, -0.12, 0, A.elbow, false);  // taped forearms
+      break;
+    case "GRAMPS":
+      for (const z of [-0.12, 0.12]) { box(0.03, 0.13, 0.15, INK, 0.275, 0.05, z, head, false); box(0.031, 0.09, 0.11, mat("#bfe8ff", { transparent: true, opacity: 0.6 }), 0.28, 0.05, z, head, false); }
+      for (const L of legs) box(0.22, 0.12, 0.22, "#9aa0b4", 0.0, -0.02, 0, L.knee);       // knee braces
+      break;
+  }
   root.userData.ch = ch;
-  return { root, pose, spine, legs, arms, neck, head, skull, faces, mood: "calm", scale: S };
+  return { root, pose, spine, legs, arms, neck, head, skull, faces, tails, mood: "calm", scale: S };
 }
 
 // Pose a baller for this frame. s: { speed, walk, air, rise (vy), guard, dribble ({ hand, low }), shoot, follow, dunk, hang,
@@ -233,6 +271,8 @@ export function animate(b, s) {
   b.pose.position.y = (s.fall ? 0.25 : -P.drop) * b.scale + (s.toes ? 0.06 : 0);
   if (s.fall) { L[0].hip.rotation.z = 0.9; L[1].hip.rotation.z = 0.3; A[0].shoulder.rotation.z = 2.2; A[1].shoulder.rotation.z = 0.6; }
   b.neck.rotation.z = s.fall ? 0.3 : -P.spine * 0.6;                                             // the head stays level, eyes up
+  // scarves and ribbons stream back, more the faster he goes
+  for (const [k, t] of (b.tails ?? []).entries()) t.rotation.z = 1.15 - run * 0.85 - (s.air ? 0.35 : 0) + Math.sin(s.t * 14 + k * 1.7) * (0.1 + run * 0.15);
   // the face
   const mood = s.mood ?? "calm";
   if (mood !== b.mood) { b.mood = mood; b.skull.material[0] = b.faces[mood]; }

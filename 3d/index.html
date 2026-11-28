@@ -3,131 +3,135 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<meta name="theme-color" content="#0a0e1c">
+<meta name="theme-color" content="#14111c">
 <title>Hoops 3D</title>
 <style>
-  /* a clean broadcast look: frosted glass panels, heavy italic type, team colors, rounded everything */
+  /* arcade streetball: flat inks and stickers, thick black outlines, hard offset shadows, halftone dots,
+     a heavy slab face for big words and the game's own pixel font (Galmuri) for labels, matching the pixel effects */
+  @font-face { font-family: "Galmuri"; src: url("../fonts/Galmuri11-Bold.woff2") format("woff2"); }
   :root {
-    --font: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", system-ui, -apple-system, sans-serif;
-    --glass: rgba(12, 16, 32, .62); --glass-hi: rgba(255, 255, 255, .1); --line: rgba(255, 255, 255, .14);
-    --text: #f5f7ff; --dim: #a7b0cc; --hot: #ff7a1a; --gold: #ffd23f; --good: #34e08a; --bad: #ff4d5e;
-    --r: 14px; --shadow: 0 10px 30px rgba(0, 0, 0, .35);
+    --ink: #14111c; --paper: #f4ead3; --hot: #ff4f1f; --sun: #ffd21f; --sky: #3fd0ff; --mint: #3ee07f; --bad: #ff3b4e;
+    --slab: Impact, "Haettenschweiler", "Arial Black", "Malgun Gothic", sans-serif; --pix: "Galmuri", "Malgun Gothic", monospace;
+    --hard: 4px 4px 0 var(--ink); --dots: radial-gradient(rgba(20, 17, 28, .16) 1.1px, transparent 1.6px);
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: #0a0e1c; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+  html, body { margin: 0; height: 100%; background: #0d1020; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
   #c { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
-  .ui { position: fixed; pointer-events: none; font-family: var(--font); color: var(--text); }
-  .tag { display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: .12em; color: var(--dim); text-transform: uppercase; }
-  .glass { background: var(--glass); backdrop-filter: blur(12px) saturate(1.3); -webkit-backdrop-filter: blur(12px) saturate(1.3); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); }
+  .ui { position: fixed; pointer-events: none; font-family: var(--pix); color: var(--paper); }
+  .tag { display: inline-block; font-family: var(--pix); font-size: 11px; color: var(--ink); background: var(--sun); padding: 2px 7px; border: 2px solid var(--ink); transform: rotate(-2deg); }
+  /* words with an inked edge and a hard drop */
+  .slab { font-family: var(--slab); letter-spacing: .02em; -webkit-text-stroke: 2px var(--ink); paint-order: stroke fill; text-shadow: 3px 3px 0 var(--ink); }
 
-  /* ---- the scoreboard bug ---- */
-  #score { top: 12px; left: 50%; transform: translateX(-50%); display: none; align-items: stretch; border-radius: 16px; overflow: hidden;
-    background: var(--glass); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--line); box-shadow: var(--shadow); }
-  #score span, #score b { display: flex; align-items: center; padding: 0 14px; height: 48px; }
-  #na, #nb { font-weight: 800; font-size: 15px; letter-spacing: .04em; min-width: 92px; justify-content: center; }
-  #na { box-shadow: inset 5px 0 0 var(--ca, #fff); } #nb { box-shadow: inset -5px 0 0 var(--cb, #fff); }
-  #score b { font-size: 30px; font-weight: 900; font-variant-numeric: tabular-nums; min-width: 56px; justify-content: center; background: rgba(255, 255, 255, .06); }
-  #clock { font-weight: 900; font-size: 18px; color: var(--gold); font-variant-numeric: tabular-nums; min-width: 78px; justify-content: center; background: rgba(0, 0, 0, .35); }
+  /* ---- the scoreboard: a black slab with team tabs and a yellow clock sticker ---- */
+  #score { top: 10px; left: 50%; transform: translateX(-50%); display: none; align-items: stretch; background: var(--ink); border: 3px solid var(--ink); box-shadow: var(--hard); }
+  #score span, #score b { display: flex; align-items: center; padding: 0 12px; height: 44px; }
+  #na, #nb { font-family: var(--pix); font-size: 14px; color: var(--ink) !important; min-width: 92px; justify-content: center; }
+  #na { background: var(--ca, #fff); } #nb { background: var(--cb, #fff); }
+  #score b { font-family: var(--slab); font-size: 34px; color: var(--paper); min-width: 58px; justify-content: center; font-weight: normal; }
+  #clock { font-family: var(--slab); font-size: 22px; color: var(--ink); background: var(--sun); min-width: 74px; justify-content: center; transform: rotate(-3deg) scale(1.08); border: 3px solid var(--ink); margin: -6px 0; height: 56px !important; }
 
-  /* ---- SP and stamina, under the scoreboard ---- */
-  #bars { top: 70px; left: 50%; transform: translateX(-50%); display: none; gap: 120px; }
-  .bar { position: relative; width: 170px; height: 10px; border-radius: 99px; background: rgba(10, 14, 28, .7); border: 1px solid var(--line); overflow: visible; }
-  .bar i { position: absolute; left: 0; top: 0; height: 6px; border-radius: 99px; display: block; transition: width .15s; box-shadow: 0 0 10px currentColor; }
-  .bar u { position: absolute; left: 0; bottom: -6px; height: 3px; border-radius: 99px; background: var(--good); display: block; text-decoration: none; opacity: .9; }
-  .bar b { position: absolute; top: 14px; left: 0; font-size: 12px; font-weight: 900; font-style: italic; letter-spacing: .06em; color: var(--gold); white-space: nowrap; text-shadow: 0 0 12px rgba(255, 210, 63, .6); }
-  .bar.r i, .bar.r u { left: auto; right: 0; } .bar.r b { left: auto; right: 0; }
+  /* ---- SP and stamina: chunky segmented gauges ---- */
+  #bars { top: 70px; left: 50%; transform: translateX(-50%); display: none; gap: 110px; }
+  .bar { position: relative; width: 170px; height: 14px; background: #2a2638 repeating-linear-gradient(90deg, transparent 0 16px, var(--ink) 16px 17px); border: 3px solid var(--ink); box-shadow: 3px 3px 0 var(--ink); }
+  .bar i { position: absolute; left: 0; top: 0; height: 100%; display: block; }
+  .bar u { position: absolute; left: -3px; bottom: -9px; height: 5px; background: var(--mint); border: 2px solid var(--ink); display: block; text-decoration: none; }
+  .bar b { position: absolute; top: 16px; left: 0; font-family: var(--pix); font-size: 12px; font-weight: normal; color: var(--ink); background: var(--sun); padding: 1px 6px; border: 2px solid var(--ink); white-space: nowrap; transform: rotate(-2deg); }
+  .bar b:empty { display: none; }
+  .bar.r i, .bar.r u { left: auto; right: 0; } .bar.r b { left: auto; right: 0; transform: rotate(2deg); }
 
-  /* ---- words in the world: what just happened ---- */
+  /* ---- words in the world ---- */
   #fx { inset: 0; }
-  .pop { position: absolute; transform: translate(-50%, -50%); font-family: var(--font); font-size: 22px; font-weight: 900; font-style: italic; letter-spacing: .02em; white-space: nowrap;
-    -webkit-text-stroke: 1px rgba(0, 0, 0, .55); text-shadow: 0 3px 0 rgba(0, 0, 0, .35), 0 0 18px rgba(0, 0, 0, .35); animation: popIn .22s cubic-bezier(.2, 1.6, .4, 1); }
-  .pop.big { font-size: 44px; -webkit-text-stroke: 1.5px rgba(0, 0, 0, .6); }
-  @keyframes popIn { from { transform: translate(-50%, -50%) scale(.4); } to { transform: translate(-50%, -50%) scale(1); } }
-  /* what you can do right now: a badge over your head */
-  #cue { position: absolute; transform: translate(-50%, -50%); display: none; white-space: nowrap; font-size: 22px; font-weight: 900; font-style: italic; letter-spacing: .04em;
-    padding: 6px 16px; border-radius: 99px; background: rgba(10, 14, 28, .75); border: 2px solid currentColor; box-shadow: 0 0 22px currentColor; animation: pulse .5s ease-in-out infinite alternate; }
-  @keyframes pulse { to { transform: translate(-50%, -50%) scale(1.08); } }
-  /* the shot meter: let go in the green */
-  #meter { position: absolute; width: 90px; height: 10px; border-radius: 99px; background: rgba(10, 14, 28, .8); border: 1px solid var(--line); display: none; transform: translate(-50%, -50%); overflow: hidden; }
-  #meter i { position: absolute; left: 38%; width: 24%; top: 0; bottom: 0; background: var(--good); box-shadow: 0 0 10px var(--good); }
-  #meter u { position: absolute; top: 0; bottom: 0; width: 4px; border-radius: 2px; background: #fff; }
+  .pop { position: absolute; transform: translate(-50%, -50%) rotate(-4deg); font-family: var(--slab); font-size: 26px; letter-spacing: .02em; white-space: nowrap;
+    -webkit-text-stroke: 3px var(--ink); paint-order: stroke fill; text-shadow: 3px 3px 0 var(--ink); animation: stamp .18s steps(3) both; }
+  .pop.big { font-size: 50px; -webkit-text-stroke: 4px var(--ink); text-shadow: 5px 5px 0 var(--ink); }
+  @keyframes stamp { from { transform: translate(-50%, -50%) rotate(-4deg) scale(1.8); } to { transform: translate(-50%, -50%) rotate(-4deg) scale(1); } }
+  /* what you can do now: a sticker over your head */
+  #cue { position: absolute; transform: translate(-50%, -50%) rotate(-3deg); display: none; white-space: nowrap; font-family: var(--slab); font-size: 26px; letter-spacing: .03em;
+    padding: 2px 14px 4px; background: var(--ink); border: 3px solid currentColor; box-shadow: 4px 4px 0 var(--ink); animation: wiggle .3s steps(2) infinite; }
+  @keyframes wiggle { 50% { transform: translate(-50%, -54%) rotate(3deg); } }
+  #meter { position: absolute; width: 92px; height: 14px; background: #2a2638; border: 3px solid var(--ink); display: none; transform: translate(-50%, -50%); box-shadow: 3px 3px 0 var(--ink); }
+  #meter i { position: absolute; left: 38%; width: 24%; top: 0; bottom: 0; background: var(--mint); }
+  #meter u { position: absolute; top: -4px; bottom: -4px; width: 5px; background: var(--paper); border: 1px solid var(--ink); }
 
-  /* ---- center: the countdown and the final result ---- */
+  /* ---- center: countdown and the result ---- */
   #center { inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
-  .count { font-size: 140px; font-weight: 900; font-style: italic; color: #fff; text-shadow: 0 8px 0 rgba(0, 0, 0, .3), 0 0 50px rgba(255, 122, 26, .6); animation: countIn .45s cubic-bezier(.2, 1.4, .4, 1); }
-  .count.go { color: var(--gold); }
-  @keyframes countIn { from { transform: scale(2.2); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-  .result { pointer-events: auto; min-width: 440px; padding: 26px 34px 24px; border-radius: 22px; background: var(--glass); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-    border: 1px solid var(--line); box-shadow: var(--shadow), inset 0 3px 0 var(--c); animation: countIn .35s ease-out; }
-  .result h2 { margin: 6px 0 10px; font-size: 44px; font-weight: 900; font-style: italic; color: var(--c); }
-  .final { display: flex; align-items: center; justify-content: center; gap: 14px; font-weight: 800; }
-  .final b { font-size: 54px; font-weight: 900; font-variant-numeric: tabular-nums; } .final i { font-size: 36px; color: var(--dim); font-style: normal; }
-  .row { display: flex; gap: 10px; justify-content: center; margin-top: 18px; flex-wrap: wrap; }
-  .row button, .row a { font-family: var(--font); font-size: 15px; font-weight: 800; color: var(--text); background: var(--glass-hi); border: 1px solid var(--line); border-radius: 99px; padding: 11px 20px; text-decoration: none; cursor: pointer; }
-  .row .primary { background: linear-gradient(135deg, var(--hot), #ff3d6e); border: 0; box-shadow: 0 6px 20px rgba(255, 90, 60, .45); }
-  .row button:hover, .row a:hover { filter: brightness(1.15); }
+  .count { font-family: var(--slab); font-size: 160px; color: var(--sun); -webkit-text-stroke: 7px var(--ink); paint-order: stroke fill; text-shadow: 10px 10px 0 var(--ink); transform: rotate(-6deg); animation: slam .3s steps(4) both; }
+  .count.go { color: var(--hot); }
+  @keyframes slam { from { transform: rotate(-6deg) scale(2.6); } to { transform: rotate(-6deg) scale(1); } }
+  .result { pointer-events: auto; min-width: 460px; padding: 22px 30px 24px; background: var(--paper) var(--dots); background-size: auto, 7px 7px; color: var(--ink);
+    border: 4px solid var(--ink); box-shadow: 9px 9px 0 var(--ink); transform: rotate(-1deg); animation: slam .25s steps(3) both; position: relative; }
+  .result::before { content: ""; position: absolute; left: -4px; right: -4px; top: -4px; height: 14px; background: var(--c); border-bottom: 4px solid var(--ink); }
+  .result h2 { margin: 14px 0 6px; font-family: var(--slab); font-size: 54px; font-weight: normal; color: var(--c); -webkit-text-stroke: 3px var(--ink); paint-order: stroke fill; text-shadow: 4px 4px 0 var(--ink); }
+  .final { display: flex; align-items: center; justify-content: center; gap: 12px; font-family: var(--pix); }
+  .final span { color: var(--ink) !important; background: #fff; border: 2px solid var(--ink); padding: 2px 6px; }
+  .final b { font-family: var(--slab); font-size: 58px; font-weight: normal; } .final i { font-family: var(--slab); font-size: 40px; font-style: normal; }
+  .row { display: flex; gap: 12px; justify-content: center; margin-top: 16px; flex-wrap: wrap; }
+  .row button, .row a { font-family: var(--pix); font-size: 14px; color: var(--ink); background: #fff; border: 3px solid var(--ink); box-shadow: var(--hard); padding: 10px 16px; text-decoration: none; cursor: pointer; }
+  .row .primary { background: var(--hot); color: #fff; }
+  .row button:active, .row a:active { transform: translate(3px, 3px); box-shadow: 1px 1px 0 var(--ink); }
 
-  /* ---- the skill banner ---- */
-  #cutin { top: 30%; left: 0; right: 0; height: 96px; display: flex; align-items: center; padding-left: 9%; transform: translateX(-110%); transition: transform .2s cubic-bezier(.2, 1.2, .4, 1); }
-  #cutin.r { justify-content: flex-end; padding: 0 9% 0 0; transform: translateX(110%); text-align: right; }
+  /* ---- the skill banner: a band of the baller's color with halftone, his skill stamped on it ---- */
+  #cutin { top: 30%; left: 0; right: 0; height: 110px; display: flex; align-items: center; padding-left: 8%; transform: translateX(-110%); transition: transform .14s steps(3); }
+  #cutin.r { justify-content: flex-end; padding: 0 8% 0 0; transform: translateX(110%); text-align: right; }
   #cutin.on { transform: translateX(0); }
-  #cutin i { position: absolute; inset: 10px 0; background: linear-gradient(90deg, transparent, var(--d) 18%, var(--c) 60%, transparent); transform: skewY(-3deg); opacity: .9; z-index: -1; }
-  #cutin b { display: block; font-size: 46px; font-weight: 900; font-style: italic; text-shadow: 0 4px 0 rgba(0, 0, 0, .3); }
-  #cutin small { font-size: 15px; font-weight: 800; letter-spacing: .1em; opacity: .85; } #cutin .tag { color: #fff; opacity: .8; }
+  #cutin i { position: absolute; inset: 8px -20px; background: var(--dots), var(--c); background-size: 7px 7px, auto; border-top: 5px solid var(--ink); border-bottom: 5px solid var(--ink); transform: rotate(-3deg); z-index: -1; }
+  #cutin b { display: block; font-family: var(--slab); font-size: 58px; font-weight: normal; color: #fff; -webkit-text-stroke: 4px var(--ink); paint-order: stroke fill; text-shadow: 5px 5px 0 var(--ink); line-height: 1; }
+  #cutin small { font-family: var(--pix); font-size: 14px; color: var(--ink); background: #fff; border: 2px solid var(--ink); padding: 1px 6px; }
 
-  /* ---- character select ---- */
-  #sel { inset: 0; display: none; flex-direction: column; align-items: center; padding: 18px 16px 16px; pointer-events: none; }
+  /* ---- character select: a trading card ---- */
+  #sel { inset: 0; display: none; flex-direction: column; align-items: center; padding: 14px 16px 14px; pointer-events: none; }
   #sel header { text-align: center; }
-  .brand { font-size: 14px; font-weight: 900; letter-spacing: .3em; color: var(--dim); } .brand em { color: var(--hot); font-style: normal; }
-  #sel h1 { margin: 2px 0 0; font-size: 34px; font-weight: 900; font-style: italic; letter-spacing: .01em; }
-  #sel button { pointer-events: auto; font-family: var(--font); cursor: pointer; }
-  #tabs { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; justify-content: center; }
-  .tab { background: var(--glass); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); color: var(--dim); border: 1px solid var(--line); border-radius: 99px; padding: 8px 16px; font-size: 13px; font-weight: 800; letter-spacing: .06em; transition: all .15s; }
-  .tab:hover { color: #fff; }
-  .tab.on { color: #fff; background: var(--c); border-color: transparent; box-shadow: 0 6px 20px color-mix(in srgb, var(--c) 55%, transparent); }
-  #card { margin-top: auto; display: flex; gap: 22px; align-items: stretch; padding: 18px 22px; border-radius: 20px; background: var(--glass); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-    border: 1px solid var(--line); box-shadow: var(--shadow), inset 0 3px 0 var(--c); max-width: 920px; }
-  .who { min-width: 190px; }
-  .who b { display: block; font-size: 38px; font-weight: 900; font-style: italic; color: var(--c); line-height: 1; }
-  .who i { display: block; margin: 4px 0 12px; font-style: normal; font-size: 13px; font-weight: 700; color: var(--dim); letter-spacing: .06em; }
-  .stats { display: grid; grid-template-columns: 34px 1fr; gap: 6px 10px; align-items: center; font-size: 11px; font-weight: 800; color: var(--dim); }
-  .sbar { height: 6px; border-radius: 99px; background: rgba(255, 255, 255, .1); overflow: hidden; } .sbar u { display: block; height: 100%; border-radius: 99px; background: var(--c); }
-  .abil { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-  .ab { padding: 12px 14px; border-radius: 12px; background: rgba(255, 255, 255, .06); border: 1px solid var(--line); }
-  .ab b { display: block; margin: 4px 0 4px; font-size: 17px; font-weight: 900; font-style: italic; }
-  .ab em { display: block; font-style: normal; font-size: 12px; line-height: 1.4; color: var(--dim); }
-  .ab.sk { background: linear-gradient(160deg, rgba(255, 210, 63, .14), rgba(255, 255, 255, .04)); } .ab.sk b { color: var(--gold); }
-  #selBtns { display: flex; gap: 10px; margin-top: 14px; align-items: center; }
-  #selBtns button { color: #fff; border: 1px solid var(--line); background: var(--glass); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-radius: 99px; font-size: 22px; font-weight: 900; width: 48px; height: 48px; }
-  #selBtns #playB { width: auto; padding: 0 54px; font-size: 18px; letter-spacing: .12em; background: linear-gradient(135deg, var(--hot), #ff3d6e); border: 0; box-shadow: 0 8px 24px rgba(255, 90, 60, .45); }
-  #sel small { color: var(--dim); font-size: 12px; font-weight: 700; margin-top: 8px; letter-spacing: .04em; }
+  .brand { font-family: var(--pix); font-size: 12px; color: var(--ink); background: var(--sun); border: 2px solid var(--ink); padding: 2px 8px; } .brand em { font-style: normal; color: var(--hot); }
+  #sel h1 { margin: 6px 0 0; font-family: var(--slab); font-size: 44px; font-weight: normal; color: #fff; -webkit-text-stroke: 3px var(--ink); paint-order: stroke fill; text-shadow: 4px 4px 0 var(--ink); transform: rotate(-2deg); }
+  #sel button { pointer-events: auto; cursor: pointer; }
+  #tabs { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; justify-content: center; }
+  .tab { font-family: var(--pix); font-size: 13px; color: var(--ink); background: var(--paper); border: 3px solid var(--ink); box-shadow: 3px 3px 0 var(--ink); padding: 5px 12px; }
+  .tab.on { background: var(--c); transform: translateY(-3px) rotate(-3deg); box-shadow: 4px 6px 0 var(--ink); }
+  #card { margin-top: auto; display: flex; gap: 18px; align-items: stretch; padding: 14px 18px 16px; max-width: 940px; position: relative; color: var(--ink);
+    background: var(--paper) var(--dots); background-size: auto, 7px 7px; border: 4px solid var(--ink); box-shadow: 8px 8px 0 var(--ink); }
+  #card::before { content: ""; position: absolute; left: -4px; top: -4px; bottom: -4px; width: 16px; background: var(--c); border-right: 4px solid var(--ink); }
+  .who { min-width: 190px; padding-left: 12px; }
+  .who b { display: block; font-family: var(--slab); font-size: 46px; font-weight: normal; color: var(--c); -webkit-text-stroke: 3px var(--ink); paint-order: stroke fill; text-shadow: 3px 3px 0 var(--ink); line-height: 1; }
+  .who i { display: inline-block; margin: 6px 0 10px; font-style: normal; font-size: 12px; background: var(--ink); color: var(--paper); padding: 2px 6px; }
+  .stats { display: grid; grid-template-columns: 34px 1fr; gap: 5px 8px; align-items: center; font-size: 11px; }
+  .sbar { height: 10px; background: #fff repeating-linear-gradient(90deg, transparent 0 19%, var(--ink) 19% 20%); border: 2px solid var(--ink); } .sbar u { display: block; height: 100%; background: var(--c); }
+  .abil { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .ab { padding: 10px 12px; background: #fff; border: 3px solid var(--ink); box-shadow: 4px 4px 0 var(--ink); }
+  .ab b { display: block; margin: 7px 0 4px; font-family: var(--slab); font-size: 22px; font-weight: normal; letter-spacing: .02em; }
+  .ab em { display: block; font-style: normal; font-size: 11px; line-height: 1.45; color: #4a4458; }
+  .ab.sk { background: var(--sun); } .ab.sk .tag { background: var(--hot); color: #fff; }
+  #selBtns { display: flex; gap: 12px; margin-top: 14px; align-items: center; }
+  #selBtns button { font-family: var(--slab); color: var(--ink); background: var(--paper); border: 3px solid var(--ink); box-shadow: var(--hard); font-size: 26px; width: 50px; height: 50px; line-height: 1; }
+  #selBtns #playB { width: auto; padding: 0 56px; font-size: 30px; letter-spacing: .06em; color: #fff; background: var(--hot); -webkit-text-stroke: 2px var(--ink); paint-order: stroke fill; transform: rotate(-2deg); }
+  #prevB, #nextB { font-family: var(--pix) !important; font-size: 20px !important; }
+  #selBtns button:active { transform: translate(3px, 3px); box-shadow: 1px 1px 0 var(--ink); }
+  #sel small { font-size: 11px; margin-top: 8px; color: var(--paper); background: var(--ink); padding: 3px 8px; }
 
-  /* ---- bottom help, view switch ---- */
-  #help { bottom: 12px; left: 50%; transform: translateX(-50%); font-size: 12px; font-weight: 700; color: var(--dim); white-space: nowrap; padding: 7px 14px; border-radius: 99px;
-    background: rgba(10, 14, 28, .55); border: 1px solid var(--line); max-width: 96vw; overflow: hidden; text-overflow: ellipsis; }
-  #viewB { position: fixed; top: 16px; right: 16px; display: none; font-family: var(--font); font-size: 13px; font-weight: 800; letter-spacing: .04em; color: var(--text); background: var(--glass);
-    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid var(--line); border-radius: 99px; padding: 9px 16px; cursor: pointer; z-index: 3; }
+  /* ---- help strip, view button ---- */
+  #help { bottom: 10px; left: 50%; transform: translateX(-50%); font-size: 11px; color: var(--paper); white-space: nowrap; padding: 5px 10px; background: var(--ink); border: 2px solid #3a3550; max-width: 96vw; overflow: hidden; text-overflow: ellipsis; }
+  #viewB { position: fixed; top: 14px; right: 14px; display: none; font-family: var(--pix); font-size: 12px; color: var(--ink); background: var(--paper); border: 3px solid var(--ink); box-shadow: 3px 3px 0 var(--ink); padding: 6px 10px; cursor: pointer; z-index: 3; }
 
-  /* ---- touch controls: frosted circles ---- */
+  /* ---- touch: inked round buttons ---- */
   #touch { inset: 0; display: none; }
-  #touch .b { position: absolute; pointer-events: auto; border-radius: 50%; border: 1px solid rgba(255, 255, 255, .28); background: rgba(12, 16, 32, .42); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-    color: #fff; font-family: var(--font); font-weight: 900; font-style: italic; letter-spacing: .04em; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow); transition: transform .08s; }
-  #touch .b.on { transform: scale(.92); background: rgba(255, 122, 26, .7); }
-  #touch .b.gold { border: 2px solid var(--gold); box-shadow: 0 0 24px rgba(255, 210, 63, .7); }
-  #bShoot { width: 112px; height: 112px; right: 36px; bottom: 36px; font-size: 18px; background: linear-gradient(135deg, rgba(255, 122, 26, .75), rgba(255, 61, 110, .65)) !important; border: 0 !important; }
-  #bJump { width: 72px; height: 72px; right: 164px; bottom: 26px; font-size: 13px; }
-  #bDash { width: 72px; height: 72px; right: 58px; bottom: 164px; font-size: 13px; }
-  #bMove { width: 64px; height: 64px; right: 170px; bottom: 112px; font-size: 12px; }
-  #bSkill { width: 64px; height: 64px; right: 150px; bottom: 196px; font-size: 12px; }
-  #stick { position: absolute; width: 110px; height: 110px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, .3); background: rgba(12, 16, 32, .3); display: none; transform: translate(-50%, -50%); }
-  #knob { position: absolute; width: 48px; height: 48px; border-radius: 50%; background: rgba(255, 255, 255, .85); box-shadow: 0 4px 14px rgba(0, 0, 0, .4); display: none; transform: translate(-50%, -50%); }
+  #touch .b { position: absolute; pointer-events: auto; border-radius: 50%; border: 3px solid var(--ink); background: var(--paper); color: var(--ink); font-family: var(--slab); letter-spacing: .03em;
+    display: flex; align-items: center; justify-content: center; box-shadow: 4px 4px 0 var(--ink); opacity: .92; }
+  #touch .b.on { transform: translate(3px, 3px); box-shadow: 1px 1px 0 var(--ink); background: var(--sun); }
+  #touch .b.gold { background: var(--sun); animation: wiggle2 .3s steps(2) infinite; }
+  @keyframes wiggle2 { 50% { transform: rotate(6deg); } }
+  #bShoot { width: 112px; height: 112px; right: 36px; bottom: 36px; font-size: 24px; background: var(--hot) !important; color: #fff !important; -webkit-text-stroke: 2px var(--ink); paint-order: stroke fill; }
+  #bJump { width: 72px; height: 72px; right: 164px; bottom: 26px; font-size: 17px; }
+  #bDash { width: 72px; height: 72px; right: 58px; bottom: 164px; font-size: 17px; background: var(--sky); }
+  #bMove { width: 64px; height: 64px; right: 170px; bottom: 112px; font-size: 15px; }
+  #bSkill { width: 64px; height: 64px; right: 150px; bottom: 196px; font-size: 15px; background: var(--sun); }
+  #stick { position: absolute; width: 110px; height: 110px; border-radius: 50%; border: 3px dashed rgba(244, 234, 211, .6); display: none; transform: translate(-50%, -50%); }
+  #knob { position: absolute; width: 50px; height: 50px; border-radius: 50%; background: var(--paper); border: 3px solid var(--ink); box-shadow: 3px 3px 0 var(--ink); display: none; transform: translate(-50%, -50%); }
 
-  #rotate { position: fixed; inset: 0; background: #0a0e1c; color: #fff; font-family: var(--font); font-size: 22px; font-weight: 800; display: none; align-items: center; justify-content: center; z-index: 9; }
+  #rotate { position: fixed; inset: 0; background: #0d1020; color: var(--paper); font-family: var(--pix); font-size: 22px; display: none; align-items: center; justify-content: center; z-index: 9; }
   @media (orientation: portrait) and (pointer: coarse) { #rotate { display: flex; } }
   @media (max-height: 480px) {
-    #card { padding: 12px 14px; gap: 12px; } .who b { font-size: 28px; } .ab { padding: 8px 10px; } .ab b { font-size: 14px; } .ab em { font-size: 11px; }
-    #sel h1 { font-size: 24px; } .count { font-size: 100px; } .result { min-width: 340px; padding: 18px 22px; } .result h2 { font-size: 32px; }
-    #bars { top: 64px; gap: 80px; } .bar { width: 130px; }
+    #card { padding: 10px 12px 12px; gap: 12px; } .who b { font-size: 34px; } .ab { padding: 7px 9px; } .ab b { font-size: 17px; } .ab em { font-size: 10px; }
+    #sel h1 { font-size: 30px; } .count { font-size: 110px; } .result { min-width: 360px; padding: 16px 20px; } .result h2 { font-size: 40px; }
+    #bars { top: 64px; gap: 70px; } .bar { width: 130px; }
   }
 </style>
 </head>
