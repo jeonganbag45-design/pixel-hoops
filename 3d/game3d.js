@@ -16,20 +16,26 @@ const KO = {
   "THE HOTHEAD": "열혈 슈터", "COLD BLOODED": "냉정한 저격수", "SPEED DEMON": "번개 발", "THE BRICK WALL": "인간 장벽", "THE PICKPOCKET": "소매치기 장인", "OLD BUT GOLD": "왕년의 전설",
   SPD: "속도", JMP: "점프", SHOT: "슛", "3PT": "3점", DEF: "수비", "VS CPU": "CPU와 대결",
   PICK: "← → 고르기   F / ENTER 결정",
-  HELP: "우클릭/WASD 이동  SPACE 슛·스틸(꾹→꼭대기에서 떼기, 톡=페이크)  SHIFT 대시  E 점프  Q 크로스오버  R 스핀  F 스텝백  C(꾹) 공 보호  X 스킬  V 시점",
+  HELP: "우클릭/WASD 이동   SPACE 슛·스틸 (꾹 → 꼭대기에서 떼기, 톡 = 페이크)   SHIFT 대시   E 점프   Q 고유 드리블   X 스킬   V 시점",
   VIEW: "시점", SIDE: "옆", HIGH: "위", BEHIND: "뒤",
-  CROSS: "크로스!", "SPIN!": "스핀!", "STEP BACK": "스텝백!", PASSIVE: "패시브", SKILL: "스킬", MOVE: "기술", "SKILL READY": "스킬 준비!",
+  "BLOW BY!": "제쳤다!", DRIBBLE: "드리블", SLIPPED: "미끄덩", "BULLDOZED!": "밀려났다!",
+  "HEAT CHECK": "히트 체크", "FIRE CROSSOVER, THEN A BURST OF SPEED": "불꽃 크로스오버 후 가속",
+  "ICE STEPBACK": "아이스 스텝백", "STEP BACK OFF AN ICE PATCH: AN OPEN SHOT": "얼음 깔고 스텝백: 노마크 슛",
+  BLINK: "블링크", "ZAP SIDEWAYS IN A FLASH": "옆으로 순간이동",
+  BULLDOZE: "불도저", "SHOULDER HIM OUT OF THE WAY": "어깨로 밀어내기",
+  PHANTOM: "팬텀", "FADE OUT, LEAVE A DECOY": "흐려지며 분신 남기기",
+  "OLD MAN HESI": "할배 헤지테이션", "A PAUSE THAT FREEZES HIM": "멈칫! 상대도 굳는다", PASSIVE: "패시브", SKILL: "스킬", MOVE: "기술", "SKILL READY": "스킬 준비!",
   "GET AWAY!": "피해!", "JUMP!": "점프!", "DASH!": "대시!", DODGED: "피했다!", "JUMPED IT": "점프로 회피", FIZZLED: "불발", "GOT IT ALREADY": "이미 내 공",
   "INFERNO!": "인페르노!", "FROZEN!": "꽁꽁!", "THUNDER STEP!": "번개 이동!", "EARTHQUAKE!": "지진이다!", "BLACK HOLE!": "블랙홀!", "TIME OUT!": "타임아웃!", "DENTURES!": "틀니 발사!", "CHOMP!": "콱!", "ZAPPED!": "찌릿!",
   "AWAKENED!": "각성!", "HOT HAND": "손이 뜨겁다", "AWAKENS AFTER 2 MAKES": "2골 연속이면 각성", INFERNO: "인페르노", "AWAKEN 10S + KNOCKBACK": "10초 각성 + 날려버림",
   "ICE VEINS": "강철 멘탈", "BIGGER PERFECT ZONE": "퍼펙트 판정 넓음", "DEEP FREEZE": "꽁꽁", "ICE SPIKES FREEZE HIM": "얼음 가시로 얼려버림",
   "QUICK FEET": "날쌘 발", "DASHES COST HALF STAMINA": "대시 스태미나 절반", "THUNDER STEP": "번개 이동", "WARP TO RIM AND DUNK": "림으로 순간이동 덩크",
-  "ROCK SOLID": "통곡의 벽", "DRIVES BOUNCE OFF HIM": "발목 무적, 돌파는 튕겨냄", EARTHQUAKE: "지진", "TWO QUAKES. JUMP BOTH!": "땅 쾅쾅! 두 번 다 피해라",
+  "ROCK SOLID": "통곡의 벽", "DRIVES BOUNCE OFF HIM": "돌파는 튕겨내고 공을 턴다", EARTHQUAKE: "지진", "TWO QUAKES. JUMP BOTH!": "땅 쾅쾅! 두 번 다 피해라",
   "STICKY HANDS": "끈끈이 손", "STEALS WORK MORE OFTEN": "스틸이 잘 들어감", "BLACK HOLE": "블랙홀", "SUCKS THE BALL IN": "공을 강제 소환",
   EXPERIENCE: "짬바", "SP FILLS 50% FASTER": "SP 1.5배 빨리 참", "TIME OUT": "타임아웃", "TIMESTOP GRANNY SHOT": "시간 정지 후 언더슛",
 };
 const T = (s) => (LANG === "ko" ? KO[s] ?? s : s);
-const HELP_EN = "RCLICK/WASD MOVE  SPACE SHOOT/STEAL (HOLD, LET GO AT THE TOP; TAP = FAKE)  SHIFT DASH  E JUMP  Q CROSSOVER  R SPIN  F STEPBACK  HOLD C PROTECT  X SKILL  V VIEW";
+const HELP_EN = "RCLICK/WASD MOVE   SPACE SHOOT/STEAL (HOLD, LET GO AT THE TOP; TAP = FAKE)   SHIFT DASH   E JUMP   Q SIGNATURE DRIBBLE   X SKILL   V VIEW";
 
 // ---------- renderer, scene, camera ----------
 const canvas = document.getElementById("c");
@@ -57,7 +63,7 @@ scene.add(sun);
 const fx = createFx(scene);
 
 // ---------- the arena ----------
-const HALF_L = 14, HALF_W = 7.5, RIM_X = 12.6, RIM_Y = 3.05, THREE_R = 6.75, BR = 0.15;
+const HALF_L = 14, HALF_W = 7.5, RIM_X = 12.42, RIM_Y = 3.05, THREE_R = 6.75, BR = 0.26, RIM_R = 0.4;
 const G = 18, BALL_G = 12;
 const crowd = {}, nets = [], rims = [], boards = [];
 let jumbo = null;
@@ -131,12 +137,12 @@ let jumbo = null;
     const pole = new THREE.Mesh(new THREE.BoxGeometry(0.22, 3.4, 0.22), mat("#6a6080")); pole.position.set(s * 15.2, 2.3, 0); pole.castShadow = true; scene.add(pole);
     const arm = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.16, 0.16), mat("#6a6080")); arm.position.set(s * 14.1, 3.7, 0); scene.add(arm);
     const board = new THREE.Group();
-    const glass = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.05, 1.8), mat("#dcecff", { transparent: true, opacity: 0.8 })); board.add(glass);
-    const sq = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.45, 0.6), mat("#ff6a2a", { transparent: true, opacity: 0.6 })); sq.position.y = -0.2; board.add(sq);
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.1, 1.85), new THREE.MeshBasicMaterial({ color: "#0d0a14", wireframe: true })); board.add(frame);
-    board.position.set(s * 13.0, 3.5, 0); scene.add(board); boards[s > 0 ? 1 : 0] = board;
-    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.23, 0.03, 6, 16), mat("#ff6a2a")); rim.rotation.x = Math.PI / 2; rim.position.set(s * RIM_X, RIM_Y, 0); scene.add(rim); rims[s > 0 ? 1 : 0] = { mesh: rim, wob: 0 };
-    const net = new THREE.Mesh(new THREE.CylinderGeometry(0.23, 0.14, 0.45, 10, 2, true), new THREE.MeshBasicMaterial({ color: "#e6e1ee", wireframe: true })); net.position.set(s * RIM_X, RIM_Y - 0.24, 0); scene.add(net);
+    const glass = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.6, 2.7), mat("#dcecff", { transparent: true, opacity: 0.8 })); board.add(glass);
+    const sq = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.65, 0.9), mat("#ff6a2a", { transparent: true, opacity: 0.6 })); sq.position.y = -0.32; board.add(sq);
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(0.07, 1.66, 2.76), new THREE.MeshBasicMaterial({ color: "#0d0a14", wireframe: true })); board.add(frame);
+    board.position.set(s * 13.0, 3.65, 0); scene.add(board); boards[s > 0 ? 1 : 0] = board;
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(RIM_R, 0.05, 6, 20), mat("#ff6a2a")); rim.rotation.x = Math.PI / 2; rim.position.set(s * RIM_X, RIM_Y, 0); scene.add(rim); rims[s > 0 ? 1 : 0] = { mesh: rim, wob: 0 };
+    const net = new THREE.Mesh(new THREE.CylinderGeometry(RIM_R, RIM_R * 0.6, 0.7, 12, 3, true), new THREE.MeshBasicMaterial({ color: "#e6e1ee", wireframe: true })); net.position.set(s * RIM_X, RIM_Y - 0.36, 0); scene.add(net);
     nets[s > 0 ? 1 : 0] = net;
   }
 })();
@@ -191,8 +197,10 @@ const norm = (x, z) => { const d = Math.hypot(x, z) || 1; return [x / d, z / d];
 // the ball, and the steal cue: a ring around it, turned to the camera
 const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(BR, 10, 8), mat("#f08a2a")); ballMesh.castShadow = true; scene.add(ballMesh);
 const ballInk = new THREE.Mesh(new THREE.SphereGeometry(BR + 0.025, 10, 8), new THREE.MeshBasicMaterial({ color: "#0d0a14", side: THREE.BackSide })); ballMesh.add(ballInk);
+const ballShadow = new THREE.Mesh(new THREE.CircleGeometry(BR, 14), new THREE.MeshBasicMaterial({ color: "#000000", transparent: true, opacity: 0.45, depthWrite: false }));
+ballShadow.rotation.x = -Math.PI / 2; scene.add(ballShadow);
 const ball = { x: 0, y: 1, z: 0, vx: 0, vy: 0, vz: 0, owner: null, live: false, shooter: null, made: false, t: 0, T: 1, pts: 2, resolved: false, quality: "" };
-const ring = new THREE.Mesh(new THREE.RingGeometry(0.24, 0.3, 20), new THREE.MeshBasicMaterial({ color: "#ffe03c", transparent: true, depthTest: false }));
+const ring = new THREE.Mesh(new THREE.RingGeometry(0.4, 0.5, 20), new THREE.MeshBasicMaterial({ color: "#ffe03c", transparent: true, depthTest: false }));
 ring.renderOrder = 5; scene.add(ring);
 
 // ---------- sound ----------
@@ -275,16 +283,15 @@ function startDash(p, dv) {
   p.dashT = 0.2; p.dunkWin = isTouch && p.i === 0 ? 0.55 : 0.35; p.dashV = dv; p.face = dv; p.dashRolled = ball.owner !== p;
   p.stam = Math.max(0, p.stam - DASH_COST(p)); p.dashCd = 0.22; sfx.whoosh(); fx.dust(p.x, p.z, 8);
 }
-// dashing into the defender: past a defender who bit, it breaks his ankles (a stumble he can mash his way out of);
-// into one who is set, you bounce off and may lose the ball
+// dashing into the defender: past a defender who bit, you blow right by him; into one who is set, you bounce off and may
+// lose the ball
 function dashContact(p) {
   const d = other(p);
   if (p.dashRolled || ball.owner !== p || d.fallen > 0 || flat(p, d) > 0.8) return;
   p.dashRolled = true;
   if (committed(d) && d.ch.name !== "TANK") {
-    d.fallen = 0.6; d.ankled = true; d.vy = Math.max(d.vy, 2); say(p, "ANKLES!", "#ffe03c", true); say(d, "GET UP!", "#c8c0dc");
-    fx.ring(d.x, d.z, "#ffe03c", 2.2, 0.5); fx.ring(d.x, d.z, p.ch.col, 1.4, 0.35); fx.dust(d.x, d.z, 16); fx.burst(d.x, 1.6, d.z, 10, ["#ffe03c", "#ffffff"], 3, 0.6, { lift: 2 });
-    fx.impact({ stop: 0.1, slow: 0.5, shake: 0.35, punch: 0.6 }); sfx.crack(); hype = 1;
+    d.stun = Math.max(d.stun, 0.25); say(p, "BLOW BY!", "#ffe03c", true);
+    fx.ring(d.x, d.z, p.ch.col, 1.6, 0.35); fx.dust(d.x, d.z, 10); fx.impact({ slow: 0.25, shake: 0.15, punch: 0.3 }); sfx.whoosh(); hype = Math.max(hype, 0.6);
   } else {
     p.dashT = 0; p.vx = -p.dashV[0] * 3; p.vz = -p.dashV[1] * 3; p.stun = 0.2; say(d, "WALL", "#c8c0dc");
     fx.flash((p.x + d.x) / 2, 1.2, (p.z + d.z) / 2, "#ffffff", 1, 0.12); fx.impact({ stop: 0.05, shake: 0.2 });
@@ -316,7 +323,7 @@ function release(p, forced = false) {
   k *= 1 - cont * 0.6; k *= { perfect: 1.45, good: 1, early: 0.35, late: 0.35 }[d < 2 && q !== "perfect" ? "good" : q];
   if (p.fire) k *= 1.25;
   const made = Math.random() < (forced ? 0.92 : clamp(k, 0.03, 0.97));
-  const [sx, sy, sz] = heldPos(p), [ox, oz] = norm(sx - h.x, sz - h.z), miss = Math.random() < 0.6 ? 0.24 : -0.24;
+  const [sx, sy, sz] = heldPos(p), [ox, oz] = norm(sx - h.x, sz - h.z), miss = Math.random() < 0.6 ? RIM_R : -RIM_R;
   const tx = made ? h.x : h.x + ox * miss + rnd(-0.08, 0.08), tz = made ? h.z : h.z + oz * miss + rnd(-0.12, 0.12), ty = RIM_Y + 0.05;
   const Tt = (0.7 + d * 0.06) * (forced ? 1.45 : 1);
   Object.assign(ball, { owner: null, live: true, shooter: p, made, t: 0, T: Tt, pts: d > THREE_R ? 3 : 2, resolved: false, x: sx, y: sy, z: sz, quality: q,
@@ -328,7 +335,7 @@ function release(p, forced = false) {
   if (cont >= 0.5) say(def, "CONTEST", "#ffe03c");
 }
 function startDunk(p) {
-  const h = hoop(p); p.dunk = { t: 0, dur: 0.5, fx: p.x, fz: p.z, tx: h.x - p.dir * 0.3, tz: h.z, contested: false };
+  const h = hoop(p); p.dunk = { t: 0, dur: 0.5, fx: p.x, fz: p.z, tx: h.x - p.dir * 0.45, tz: h.z, contested: false };
   p.onGround = false; p.dashT = 0; p.face = [p.dir, 0]; say(p, "SKY", "#ffe03c"); sfx.whoosh(); fx.dust(p.x, p.z, 12); fx.ring(p.x, p.z, "#ffffff", 1.2, 0.3);
 }
 function updateDunk(p, dt) {
@@ -383,12 +390,12 @@ function heldPos(p) {
   // the dribble: down from the ball hand and back up into it; a crossover carries it low across the front
   if (p.crossT > 0) {
     const k = 1 - p.crossT / 0.18, side = (-p.hand + 2 * p.hand * k) * 0.32;
-    return [p.x + fx_ * 0.42 + sx * side, 0.2 + Math.abs(Math.sin(k * Math.PI)) * 0.15, p.z + fz * 0.42 + sz * side];
+    return [p.x + fx_ * 0.45 + sx * side, BR + 0.05 + Math.abs(Math.sin(k * Math.PI)) * 0.15, p.z + fz * 0.45 + sz * side];
   }
   const ph = dribbleLow(p);
   if (p.protect) return [p.x + fx_ * 0.2 + sx * 0.4 * p.hand, 0.55 - ph * 0.42, p.z + fz * 0.2 + sz * 0.4 * p.hand];   // low, tight, on the far side
   if (p.granny) return [p.x + fx_ * 0.3, 0.7, p.z + fz * 0.3];
-  return [p.x + fx_ * 0.36 + sx * 0.32 * p.hand, 0.95 - ph * 0.8, p.z + fz * 0.36 + sz * 0.32 * p.hand];
+  return [p.x + fx_ * 0.4 + sx * 0.36 * p.hand, 1.0 - ph * (1.0 - BR), p.z + fz * 0.4 + sz * 0.36 * p.hand];
 }
 const dribbleLow = (p) => Math.abs(Math.sin(worldT * (p.dashT > 0 || p.moveT > 0 ? 16 : p.protect ? 15 : 9) + p.i));   // 0 at the top of the bounce, 1 on the floor
 // keep the ball on the side away from the defender: switch hands at the top of a bounce, with a crossover
@@ -420,7 +427,7 @@ function updateBall(dt) {
     fx.shard({ x: ball.x, y: ball.y, z: ball.z, g: 0, floor: false, life: 0.25, size: 0.1, c: ball.quality === "perfect" ? "#5ad84a" : "#f08a2a" });
     const s = ball.shooter, d = s && other(s);
     // a block: a defender in the air meets it on the way up
-    if (d && ball.t < 0.35 && ball.vy > 0 && !d.onGround && flat(ball, d) < (isTouch && d.i === 0 ? 0.95 : 0.75) && ball.y > d.y + 1.2 && ball.y < d.y + 2.7) {
+    if (d && ball.t < 0.35 && ball.vy > 0 && !d.onGround && flat(ball, d) < (isTouch && d.i === 0 ? 1.05 : 0.85) && ball.y > d.y + 1.2 && ball.y < d.y + 2.7) {
       ball.live = false; ball.lastShooter = s; ball.noCatchT = 0.45; s.shooting = false; const [ox, oz] = norm(ball.x - d.x, ball.z - d.z); ball.vx = ox * 2 + d.face[0] * 3; ball.vz = oz * 2 + d.face[1] * 3; ball.vy = -1;
       say(d, "BLOCK!", "#ffe03c", true); sfx.block(); hype = 1; gainSp(d, 0.15);
       fx.flash(ball.x, ball.y, ball.z, "#ffffff", 2.4, 0.2); fx.halo(ball.x, ball.y, ball.z, d.ch.col, 1.4, 0.3); fx.burst(ball.x, ball.y, ball.z, 22, [d.ch.col, "#ffe03c", "#ffffff"], 4.5, 0.6);
@@ -447,7 +454,7 @@ function updateBall(dt) {
   ball.noCatchT = Math.max(0, (ball.noCatchT ?? 0) - dt);
   for (const p of players) {
     if (p.fallen > 0 || p.stun > 0 || p.dunk || p.hang > 0 || (ball.noCatchT > 0 && p === ball.lastShooter)) continue;
-    if (flat(ball, p) < 0.6 && ball.y < p.y + 2.5 && ball.y > p.y - 0.1) {
+    if (flat(ball, p) < 0.75 && ball.y < p.y + 2.6 && ball.y > p.y - 0.1) {
       ball.owner = p; p.ai.plan = null; p.shooting = false; p.gather = 0; p.fakeT = 0;
       if (!p.onGround && ball.y > 1.6) { say(p, "MINE", "#ffe03c"); fx.flash(ball.x, ball.y, ball.z, "#ffffff", 1, 0.12); }
       break;
@@ -455,36 +462,73 @@ function updateBall(dt) {
   }
 }
 
-// ---------- dribble moves ----------
-// Q crossover: the ball to the other hand and a jab that way; a defender leaning (or reaching) the old way goes down.
-// R spin: a spin move toward the rim that rolls off a set defender, the ball shielded the whole way.
-// F stepback: a hop back for room; the next shot is hardly contested. Hold C: dribble low and slow, the ball protected.
-function dribbleMove(p, kind) {
-  const d = other(p);
+// ---------- signature dribbles: one per champion, on Q (MOVE on a phone) ----------
+const SIG = {
+  BLAZE: { name: "HEAT CHECK", desc: "FIRE CROSSOVER, THEN A BURST OF SPEED", cost: 0.25, cd: 0.9 },
+  FROST: { name: "ICE STEPBACK", desc: "STEP BACK OFF AN ICE PATCH: AN OPEN SHOT", cost: 0.3, cd: 1 },
+  VOLT: { name: "BLINK", desc: "ZAP SIDEWAYS IN A FLASH", cost: 0.2, cd: 0.6 },
+  TANK: { name: "BULLDOZE", desc: "SHOULDER HIM OUT OF THE WAY", cost: 0.3, cd: 1 },
+  SHADE: { name: "PHANTOM", desc: "FADE OUT, LEAVE A DECOY", cost: 0.35, cd: 1.6 },
+  GRAMPS: { name: "OLD MAN HESI", desc: "A PAUSE THAT FREEZES HIM", cost: 0.25, cd: 1.3 },
+};
+const patches = [];
+function dribbleMove(p) {
+  const d = other(p), sig = SIG[p.ch.name];
   if (ball.owner !== p || !p.onGround || busyShot(p) || p.moveCd > 0 || p.dashT > 0 || busy(p)) return;
-  const cost = { cross: 0.12, spin: 0.3, step: 0.25 }[kind];
-  if (p.stam < cost) { say(p, "WHIFF", "#9088a4"); return; }
-  p.stam -= cost; p.moveCd = kind === "cross" ? 0.35 : 0.6; p.moveKind = kind;
-  const [fx_, fz] = p.face, sx = -fz, sz = fx_, toHoop = norm(hoop(p).x - p.x, hoop(p).z - p.z);
-  if (kind === "cross") {
-    const oldHand = p.hand; p.hand = -p.hand; p.crossT = 0.18; p.safeT = 0.35; p.moveT = 0.18;
-    p.moveV = [sx * p.hand * 6.5 + fx_ * 1.5, sz * p.hand * 6.5 + fz * 1.5];
-    // the defender bit if he was reaching, or leaning toward the side the ball just left
-    const lean = d.vx * sx * oldHand + d.vz * sz * oldHand, close = flat(p, d) < 1.9;
-    const bit = close && d.fallen <= 0 && d.ch.name !== "TANK" && (d.whiff > 0 || lean > 1.5 || (d.i === 1 && Math.random() < 0.3));
-    sfx.bounce(); fx.dust(p.x, p.z, 5);
-    if (bit) {
-      d.fallen = 0.45; d.ankled = true; say(p, "ANKLES!", "#ffe03c", true); fx.ring(d.x, d.z, "#ffe03c", 1.8, 0.4); fx.dust(d.x, d.z, 10);
-      fx.impact({ stop: 0.07, slow: 0.35, shake: 0.25, punch: 0.4 }); sfx.crack(); gainSp(p, 0.1); hype = 1;
-    } else say(p, "CROSS", "#ffffff");
-  } else if (kind === "spin") {
-    p.spinT = 0.38; p.safeT = 0.45; p.moveT = 0.38; p.moveV = [toHoop[0] * 6.5, toHoop[1] * 6.5]; p.face = toHoop;
-    say(p, "SPIN!", "#ffe03c"); sfx.whoosh(); fx.ring(p.x, p.z, p.ch.col, 1.2, 0.3);
-    if (flat(p, d) < 1.5 && d.fallen <= 0 && d.onGround) { d.stun = 0.3; d.face = [-d.face[0], -d.face[1]]; }   // he spun right off him
-  } else {
-    const away = flat(p, d) < 3 ? norm(p.x - d.x, p.z - d.z) : [-toHoop[0], -toHoop[1]];
-    p.moveT = 0.22; p.moveV = [away[0] * 6, away[1] * 6]; p.openT = 1.0; p.face = toHoop;
-    say(p, "STEP BACK", "#5ad84a"); sfx.whoosh(); fx.dust(p.x, p.z, 6);
+  if (p.stam < sig.cost) { say(p, "WHIFF", "#9088a4"); return; }
+  p.stam -= sig.cost; p.moveCd = sig.cd; p.moveKind = p.ch.name;
+  const [fx_, fz] = p.face, sx = -fz, sz = fx_, toHoop = norm(hoop(p).x - p.x, hoop(p).z - p.z), close = flat(p, d) < 2;
+  say(p, sig.name, p.ch.col);
+  switch (p.ch.name) {
+    case "BLAZE": {
+      p.hand = -p.hand; p.crossT = 0.18; p.safeT = 0.35; p.moveT = 0.18; p.boostT = 1.2;
+      p.moveV = [sx * p.hand * 7 + toHoop[0] * 2, sz * p.hand * 7 + toHoop[1] * 2];
+      fx.ring(p.x, p.z, "#ff9a2a", 1.6, 0.35); fx.burst(p.x, 0.5, p.z, 14, ["#ff4a2a", "#ff9a2a", "#ffe03c"], 3, 0.5);
+      if (close && d.fallen <= 0) { d.stun = 0.3; fx.flash(d.x, 1.6, d.z, "#ff9a2a", 1.4, 0.15); }
+      sfx.whoosh(); sfx.bounce(); break;
+    }
+    case "FROST": {
+      const away = close ? norm(p.x - d.x, p.z - d.z) : [-toHoop[0], -toHoop[1]];
+      const m = new THREE.Mesh(new THREE.CircleGeometry(1.1, 16), new THREE.MeshLambertMaterial({ color: "#bfefff", transparent: true, opacity: 0.75 }));
+      m.rotation.x = -Math.PI / 2; m.position.set(p.x, 0.025, p.z); scene.add(m); patches.push({ x: p.x, z: p.z, t: 3, mesh: m, from: p });
+      p.moveT = 0.22; p.moveV = [away[0] * 6.5, away[1] * 6.5]; p.openT = 1.2; p.face = toHoop;
+      fx.burst(p.x, 0.3, p.z, 16, ["#a6ecff", "#ffffff"], 2.5, 0.5); sfx.whoosh(); break;
+    }
+    case "VOLT": {
+      // which way: the way he's pushing the stick sideways, else away from the defender
+      const lat = (p.wantX ?? 0) * sx + (p.wantZ ?? 0) * sz, side = Math.abs(lat) > 0.3 ? Math.sign(lat) : ((d.x - p.x) * sx + (d.z - p.z) * sz > 0 ? -1 : 1);
+      const ox = p.x, oz = p.z; fx.ghost(p.body.root, p.ch.col);
+      p.x = clamp(p.x + sx * side * 2.6 + toHoop[0] * 0.8, -HALF_L + 0.3, HALF_L - 0.3); p.z = clamp(p.z + sz * side * 2.6 + toHoop[1] * 0.8, -HALF_W + 0.3, HALF_W - 0.3);
+      p.hand = side; p.safeT = 0.4;
+      fx.bolt(ox, 1, oz, p.x, 1, p.z, "#fff6a0", 0.25); fx.ring(p.x, p.z, "#fff6a0", 1.4, 0.3); noise(0.08, 0.12, 5000); beep(1400, 0.06, "square", 0.04, -600); break;
+    }
+    case "TANK": {
+      p.moveT = 0.3; p.moveV = [toHoop[0] * 4.2, toHoop[1] * 4.2]; p.safeT = 0.45; p.face = toHoop;
+      const ahead = (d.x - p.x) * toHoop[0] + (d.z - p.z) * toHoop[1];
+      if (flat(p, d) < 1.5 && ahead > 0 && d.fallen <= 0) {
+        d.vx = toHoop[0] * 6; d.vz = toHoop[1] * 6; d.stun = 0.4; say(d, "BULLDOZED!", "#ff3a4a");
+        fx.ring(d.x, d.z, p.ch.col, 1.8, 0.35); fx.dust(d.x, d.z, 14); fx.impact({ stop: 0.08, shake: 0.4, punch: 0.3 }); beep(60, 0.25, "sine", 0.25, -20);
+      }
+      fx.dust(p.x, p.z, 10); break;
+    }
+    case "SHADE": {
+      const decoy = fx.ghost(p.body.root, "#9a7cff"); decoy.userData.decoy = true;
+      p.phantomT = 1.0; p.safeT = 1.0; p.decoy = { x: p.x, z: p.z, t: 0.9 };
+      fx.vortex(p.x, 1, p.z, 0.5, 0.5); beep(600, 0.4, "sine", 0.05, -400); break;
+    }
+    case "GRAMPS": {
+      p.hesiT = 0.35; p.boostT = 1.1; p.moveT = 0;
+      if (flat(p, d) < 2.4 && d.fallen <= 0) { d.stun = 0.6; pop("?", d.x, d.y + 2.6, d.z, "#ffe03c", true); }
+      beep(1568, 0.3, "sine", 0.05); fx.clock(p.x, 1.2, p.z, 0.9, 0.5); break;
+    }
+  }
+}
+function updatePatches(dt) {
+  for (let i = patches.length - 1; i >= 0; i--) {
+    const pt = patches[i]; pt.t -= dt; pt.mesh.material.opacity = Math.min(0.75, pt.t);
+    const o = other(pt.from);
+    if (Math.hypot(o.x - pt.x, o.z - pt.z) < 1.1 && o.onGround && !(o.slowT > 0)) { o.slowT = 1.0; say(o, "SLIPPED", "#a6ecff"); fx.burst(o.x, 0.2, o.z, 8, "#ffffff", 2, 0.4); }
+    if (pt.t <= 0) { scene.remove(pt.mesh); patches.splice(i, 1); }
   }
 }
 
@@ -623,14 +667,18 @@ function wantsSpecial(me, o) {
 // ---------- a baller's frame ----------
 function updatePlayer(p, c, dt) {
   const opp = other(p);
-  for (const k of ["cd", "whiff", "dashCd", "landT", "dunkWin", "celebrate", "followT", "quakeT", "moveCd", "safeT", "openT"]) p[k] -= dt;
+  for (const k of ["cd", "whiff", "dashCd", "landT", "dunkWin", "celebrate", "followT", "quakeT", "moveCd", "safeT", "openT", "boostT", "slowT", "phantomT", "hesiT"]) p[k] = (p[k] ?? 0) - dt;
+  if (p.decoy && (p.decoy.t -= dt) <= 0) p.decoy = null;
+  if (p.boostT > 0 && p.ch.name === "BLAZE" && Math.random() < 0.6) fx.shard({ x: p.x, y: 0.2, z: p.z, g: -1, vy: 1, floor: false, life: 0.35, c: ["#ff4a2a", "#ff9a2a"], size: 0.1 });
   p.landA = Math.max(0, p.landA - dt * 5);
   if (phase === "play") gainSp(p, dt * 0.045);
   if (p.fireT > 0 && (p.fireT -= dt) <= 0 && p.streak < 2) p.fire = false;
   if (p.fire && Math.random() < 0.8) fx.shard({ x: p.x + rnd(-0.3, 0.3), y: p.y + rnd(0.2, 2), z: p.z + rnd(-0.3, 0.3), vy: rnd(1.5, 3), g: -1, floor: false, life: 0.4, c: ["#ff4a2a", "#ff9a2a", "#ffe03c"], size: 0.09 });
   if (c.special) trySpecial(p);
-  if (c.move) dribbleMove(p, c.move);
-  p.protect = !!c.protect && ball.owner === p && p.onGround;
+  p.wantX = c.mx; p.wantZ = c.mz;
+  if (c.move) dribbleMove(p);
+  p.protect = false;
+  if (p.hesiT > 0) c = { ...NONE, shootHeld: c.shootHeld };                                    // the hesitation: a dead stop
   // the wind-up: he gathers it standing still; knock him down, freeze or stun him and it fizzles
   if (p.charge) {
     if (p.fallen > 0 || p.frozen > 0 || p.stun > 0.3) { p.charge = null; say(p, "FIZZLED", "#9088a4"); }
@@ -650,7 +698,7 @@ function updatePlayer(p, c, dt) {
   const has = ball.owner === p;
   let mx = c.mx, mz = c.mz; const ml = Math.hypot(mx, mz); if (ml > 1) { mx /= ml; mz /= ml; }
   if (c.dash && p.dashCd <= 0 && p.onGround && !busyShot(p) && p.stam >= DASH_COST(p) && p.fallen <= 0) startDash(p, c.dashDir ?? (ml > 0.2 ? norm(mx, mz) : p.face));
-  const sp = 5.2 * p.ch.spd * (has ? 0.92 : 1) * (p.whiff > 0 ? 0.35 : 1) * (p.i === 1 && !dbg.auto ? 0.93 : 1) * (p.protect ? 0.62 : 1) * (p.fire ? 1.1 : 1);
+  const sp = 5.2 * p.ch.spd * (has ? 0.92 : 1) * (p.whiff > 0 ? 0.35 : 1) * (p.i === 1 && !dbg.auto ? 0.93 : 1) * (p.fire ? 1.1 : 1) * (p.boostT > 0 ? 1.3 : 1) * (p.slowT > 0 ? 0.5 : 1) * (p.phantomT > 0 ? 1.2 : 1);
   if (p.moveT > 0) {
     // a dribble move carries him; a spin turns him all the way round
     p.moveT -= dt; p.vx = p.moveV[0]; p.vz = p.moveV[1];
@@ -722,13 +770,10 @@ function cpuControl(me, dt) {
     const toward = norm(h.x - me.x, h.z - me.z);
     if (committed(o) && o.ch.name !== "TANK" && flat(me, o) < 2.5 && me.dashCd <= 0 && me.stam >= DASH_COST(me) && o.fallen <= 0) { c.dash = true; [c.mx, c.mz] = toward; return c; }
     // dribble moves against a defender in his face: crossovers, a spin on a drive, a stepback before a jumper
-    if (near && me.onGround && me.moveCd <= 0 && !busyShot(me)) {
-      if (ai.plan.kind !== "drive" && me.openT <= 0 && me.stam > 0.4 && Math.random() < dt * 1.2) { c.move = "step"; ai.afterStep = true; return c; }
-      if (ai.plan.kind === "drive" && me.stam > 0.5 && Math.random() < dt * 0.5) { c.move = "spin"; return c; }
-      if (me.stam > 0.25 && Math.random() < dt * 0.9) { c.move = "cross"; return c; }
+    if (near && me.onGround && me.moveCd <= 0 && !busyShot(me) && me.stam > SIG[me.ch.name].cost + 0.1 && Math.random() < dt * 0.9) {
+      c.move = "sig"; ai.afterStep = me.ch.name === "FROST"; return c;
     }
     if (ai.afterStep && me.moveT <= 0 && me.openT > 0 && me.onGround) { ai.afterStep = false; shoot(); return c; }
-    c.protect = near && ai.plan.kind !== "drive" && Math.random() < 0.3;
     if (me.fakeT > 0 && o.onGround && me.fakeT < 0.15) { shoot(); return c; }
     if (ai.plan.kind === "drive") {
       go(h.x - me.dir * 1.2, ai.lane * 0.3);
@@ -739,7 +784,7 @@ function cpuControl(me, dt) {
     else if (me.onGround && me.dashT <= 0) shoot();
   } else if (ball.owner === o) {
     const h = hoop(o);
-    if (ai.t <= 0) { ai.t = rnd(0.08, 0.22); const [dx, dz] = norm(h.x - o.x, h.z - o.z); ai.tx = o.x + dx * 1.15; ai.tz = o.z + dz * 1.15; }
+    if (ai.t <= 0) { ai.t = rnd(0.08, 0.22); const tgt = o.decoy ?? o, [dx, dz] = norm(h.x - tgt.x, h.z - tgt.z); ai.tx = tgt.x + dx * 1.15; ai.tz = tgt.z + dz * 1.15; }
     go(ai.tx, ai.tz, 0.15);
     const close = flat(me, o) < 1.8;
     if (o.gather > 0 && !ai.saw) { ai.saw = true; if (close && me.onGround && Math.random() < 0.4) ai.jumpIn = rnd(0.01, 0.06); }
@@ -818,10 +863,9 @@ function humanControl() {
   }
   c.jump = pressed.has("KeyE") || pressed.has("KeyK");
   c.special = pressed.has("KeyX") || touch.tap.has("skill");
-  c.move = pressed.has("KeyQ") ? "cross" : pressed.has("KeyR") ? "spin" : pressed.has("KeyF") ? "step" : null;
-  c.protect = keys.has("KeyC") || keys.has("ControlLeft");
+  c.move = pressed.has("KeyQ") || pressed.has("KeyF") ? "sig" : null;
   // on a phone: the MOVE button crosses over, twice quickly spins; dashing away from the rim with the ball is a stepback
-  if (touch.tap.has("move")) c.move = touch.moveTwice ? "spin" : "cross";
+  if (touch.tap.has("move")) c.move = "sig";
   c.dash = pressed.has("ShiftLeft") || pressed.has("ShiftRight") || pressed.has("KeyL");
   c.shoot = pressed.has("Space") || pressed.has("KeyJ"); c.shootHeld = keys.has("Space") || keys.has("KeyJ");
   // a dash with the mouse goes toward the cursor (and stops the run to the old click)
@@ -829,7 +873,6 @@ function humanControl() {
   const s = touch.stick;
   if (s) { const dx = s.x - s.ox, dy = s.y - s.oy, d = Math.hypot(dx, dy); if (d > 8) [c.mx, c.mz] = camRel(dx / 50, dy / 50); }
   if (touch.tap.has("jump")) c.jump = true; if (touch.tap.has("dash")) c.dash = true;
-  if (isTouch && c.dash && ball.owner === me && (c.mx * me.dir < -0.5)) { c.dash = false; c.move = "step"; }
   if (touch.tap.has("shoot")) c.shoot = true; if (touch.held.has("shoot")) c.shootHeld = true;
   // on a phone, the shot button near the rim after a dash is the dunk (pressed for you when it becomes possible)
   if (isTouch && touch.held.has("shoot") && ball.owner === players[0] && canDunk(players[0])) c.shoot = true;
@@ -857,7 +900,7 @@ function drawCard() {
   const ch = CHARS[pickI];
   selEl.querySelectorAll(".tab").forEach((b) => b.classList.toggle("on", +b.dataset.i === pickI));
   document.getElementById("card").innerHTML = `<b style="color:${ch.col}">${ch.name}</b><i>${T(ch.title)}</i>
-    <div class="abil"><span>${T("PASSIVE")}</span><b style="color:${ch.col}">${T(ch.passive)}</b><em>${T(ch.pdesc)}</em><span>${T("SKILL")}</span><b style="color:#ffe03c">${T(ch.special)}</b><em>${T(ch.sdesc)}</em></div>
+    <div class="abil"><span>${T("PASSIVE")}</span><b style="color:${ch.col}">${T(ch.passive)}</b><em>${T(ch.pdesc)}</em><span>${T("DRIBBLE")}</span><b style="color:#ffffff">${T(SIG[ch.name].name)}</b><em>${T(SIG[ch.name].desc)}</em><span>${T("SKILL")}</span><b style="color:#ffe03c">${T(ch.special)}</b><em>${T(ch.sdesc)}</em></div>
     <div class="stats">${STATS.map(([l, k]) => `<span>${T(l)}</span><span class="pips">${[0, 1, 2, 3, 4].map((j) => `<u style="background:${j < pips(ch[k]) ? ch.col : "#2a2440"}"></u>`).join("")}</span>`).join("")}</div>`;
 }
 function lockIn() {
@@ -879,6 +922,7 @@ function startGame() {
 }
 function newGame() {
   for (const t of teeth) scene.remove(t.mesh); teeth.length = 0;
+  for (const pt of patches) scene.remove(pt.mesh); patches.length = 0;
   for (const p of players) Object.assign(p, { sp: 0.3, fire: false, fireT: 0, streak: 0, charge: null, frozen: 0 });
   screen = "game"; fx.clear(); mouse.target = null;
   document.activeElement?.blur?.();                                             // so Space shoots instead of pressing a button again
@@ -926,7 +970,7 @@ function step(dt) {
   if (d < room && d > 0 && a.dashT <= 0 && b.dashT <= 0 && a.onGround && b.onGround && a.fallen <= 0 && b.fallen <= 0) {
     const [nx, nz] = norm(b.x - a.x, b.z - a.z), push = (room - d) / 2; a.x -= nx * push; a.z -= nz * push; b.x += nx * push; b.z += nz * push;
   }
-  updateBall(dt); updateTeeth(dt);
+  updateBall(dt); updateTeeth(dt); updatePatches(dt);
   if (phase === "scored") { if (stateT > 1.6) { setPossession(1 - lastScorer.i); phase = "play"; } return; }
   if (phase !== "play") return;
   clock -= dt;
@@ -970,6 +1014,7 @@ function draw(dt) {
     const b = p.body, spd = Math.hypot(p.vx, p.vz);
     b.root.position.set(p.x, p.y, p.z); b.root.rotation.y = Math.atan2(-p.face[1], p.face[0]) + (p.spinT > 0 ? (1 - p.spinT / 0.38) * Math.PI * 2 : 0);
     b.root.scale.setScalar(p.fire ? 1.12 : 1);
+    b.root.visible = !(p.phantomT > 0) || Math.floor(worldT * 24) % 3 === 0;
     if (!p.iceBox) { p.iceBox = new THREE.Mesh(new THREE.BoxGeometry(1, 2.3, 1), new THREE.MeshLambertMaterial({ color: "#a6ecff", transparent: true, opacity: 0.55 })); b.root.add(p.iceBox); p.iceBox.position.y = 1.1; }
     p.iceBox.visible = p.frozen > 0; if (p.frozen > 0) p.iceBox.material.color.set(p.frozenKind === "time" ? "#c8c0dc" : "#a6ecff");
     p.walk += spd * dt;
@@ -986,7 +1031,8 @@ function draw(dt) {
     });
   }
   ballMesh.position.set(ball.x, ball.y, ball.z);
-  for (const [k, n] of nets.entries()) { netT[k] = Math.max(0, netT[k] - dt * 2); n.scale.y = 1 + netT[k] * 0.6; n.position.y = RIM_Y - 0.24 - netT[k] * 0.12; }
+  ballShadow.position.set(ball.x, 0.02, ball.z); ballShadow.scale.setScalar(1 + Math.min(1.5, ball.y * 0.25)); ballShadow.material.opacity = Math.max(0.15, 0.5 - ball.y * 0.06);
+  for (const [k, n] of nets.entries()) { netT[k] = Math.max(0, netT[k] - dt * 2); n.scale.y = 1 + netT[k] * 0.6; n.position.y = RIM_Y - 0.36 - netT[k] * 0.16; }
   for (const r of rims) r.mesh.position.y = RIM_Y - Math.abs(Math.sin(worldT * 40)) * r.wob * 0.06;
   crowd.led.offset.x = (crowd.led.offset.x + dt * (0.08 + hype * 0.2)) % 1;
   // the crowd jumps when it's loud
@@ -1004,7 +1050,7 @@ function draw(dt) {
   const me = players[0];
   const ahead = ball.live && ball.shooter ? hoop(ball.shooter).x * 0.6 + ball.x * 0.4 : ball.x * 0.8 + (ball.owner ? ball.owner.dir * 2.5 : 0);
   const fxX = clamp(ahead, -10, 10), z = camZoom, vw = VIEWS[view];
-  if (vw === "SIDE") { camGoal.set(fxX, 6.6 * z, 17 * z + Math.abs(ball.z) * 0.2); lookGoal.set(fxX, 1.3, ball.z * 0.25 - 1); }
+  if (vw === "SIDE") { camGoal.set(fxX, 5.8 * z, 14.5 * z + Math.abs(ball.z) * 0.2); lookGoal.set(fxX, 1.5, ball.z * 0.3 - 0.8); }
   else if (vw === "HIGH") { camGoal.set(fxX, 16 * z, 10 * z + ball.z * 0.3); lookGoal.set(fxX, 0, ball.z * 0.4 - 0.5); }
   else {
     // a chase camera behind you that keeps the play in front: toward your hoop with the ball, toward the ball without it
@@ -1033,7 +1079,6 @@ function draw(dt) {
     else if (inReach(me, o) && ph.warn > 0) { ring.visible = true; ring.scale.setScalar(1 + (1 - ph.warn) * 2.2); ring.material.color.set(ph.warn > 0.6 ? "#ffe03c" : "#ffffff"); }
   }
   if (phase === "play" && goOpen(me)) cue = "GO!";
-  if (me.fallen > 0 && me.ankled) { cue = "GET UP!"; cueCol = "#ff3a4a"; }
   const danger = phase === "play" && dangerFor(me);
   if (danger) { cue = danger.how; cueCol = Math.floor(worldT * 10) % 2 ? "#ff3a4a" : "#ffffff"; ring.visible = false; }
   if (ring.visible) { ring.position.set(ball.x, ball.y, ball.z); ring.lookAt(camera.position); }
@@ -1092,4 +1137,4 @@ function loop(now) {
 showSelect();
 requestAnimationFrame(loop);
 window.hoops3d = { get players() { return players; }, ball, get phase() { return phase; }, get screen() { return screen; }, step, draw, frame, cpuControl, newGame, dbg, fx,
-  pick(i) { pickI = i; drawCard(); }, lockIn, trySpecial, dribbleMove, startGame, set cpuI(v) { cpuI = v; } };
+  pick(i) { pickI = i; drawCard(); }, lockIn, trySpecial, dribbleMove, scene, camera, startGame, set cpuI(v) { cpuI = v; } };
