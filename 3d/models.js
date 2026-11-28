@@ -1,7 +1,7 @@
 // The six ballers as outlined voxel figures with a real rig: hips, knees, a spine, shoulders, elbows, a neck.
 // Faces, jerseys and shorts are tiny hand-placed pixel textures (the 2D game's look on 3D blocks), and faces change
 // with the moment: focused, happy, hurt. Each figure faces +x.
-import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js";
+import * as THREE from "three";
 
 export const CHARS = [
   { name: "BLAZE", title: "THE HOTHEAD", col: "#ff4a3a", dark: "#a8201e", trim: "#ffe03c", skin: "#d79a6a", hair: "#ff7a1a", tip: "#ffe03c", shoe: "#ffe03c", sole: "#a8201e", band: "#ff4a3a", num: 3, style: "flame",

@@ -1,9 +1,17 @@
 // Pixel Hoops 3D. The 1-on-1 game on a full court you can move around in every direction: timing shots, pump fakes,
 // steal windows, ankle breakers, dunks, blocks. Blocky outlined ballers rendered at a low resolution and scaled up with
 // hard pixels, so it keeps the pixel look. Characters live in models.js, effects in fx.js.
-import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js";
+import * as THREE from "three";
 import { CHARS, makeBaller, animate, mat } from "./models.js";
 import { createFx } from "./fx.js";
+// from the three.js repo's addons: a post-process that renders the scene as pixel art, with light and dark pixel edges
+// where surfaces meet (github.com/mrdoob/three.js, examples/jsm/postprocessing)
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPixelatedPass } from "three/addons/postprocessing/RenderPixelatedPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+
+// the numbers that set the feel, in one place; open the page with ?dev for sliders (lil-gui) and a frame meter (stats-gl)
+const TUNE = { speed: 1, dash: 1, jump: 1, stealWin: 1, cpuSteal: 0.1, cpuDodge: 0.45, windUp: 0.6, spRate: 0.045 };
 
 // ---------- words ----------
 const LANG = localStorage.getItem("hoops.lang") === "ko" ? "ko" : "en";
@@ -46,8 +54,18 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color("#0b0914"); scene.fog = new THREE.Fog("#0b0914", 34, 70);
 const camera = new THREE.PerspectiveCamera(32, 16 / 9, 0.1, 140);
 const LOW_H = 270;                                     // the internal picture is 270 pixels tall, whatever the screen
+let pixelMode = localStorage.getItem("hoops3d.pixel") !== "off";
+const composer = new EffectComposer(renderer);
+const pixPass = new RenderPixelatedPass(3, scene, camera, { normalEdgeStrength: 0.35, depthEdgeStrength: 0.45 });
+composer.addPass(pixPass); composer.addPass(new OutputPass());
+// draw a scene with a camera, through the pixel pass when it's on
+// (the soft light beams would get edge lines in the pixel pass, so they only show without it)
+const beams = [];
+function present(sc, cam) { for (const b of beams) b.visible = !pixelMode; if (pixelMode) { pixPass.scene = sc; pixPass.camera = cam; composer.render(); } else renderer.render(sc, cam); }
 function resize() {
-  const w = innerWidth, h = innerHeight; renderer.setSize(Math.round((LOW_H * w) / h), LOW_H, false); camera.aspect = stageCam.aspect = w / h; camera.updateProjectionMatrix(); stageCam.updateProjectionMatrix();
+  const w = innerWidth, h = innerHeight;
+  if (pixelMode) { renderer.setSize(w, h, false); composer.setSize(w, h); pixPass.setPixelSize(Math.max(2, Math.round(h / LOW_H))); }
+  else renderer.setSize(Math.round((LOW_H * w) / h), LOW_H, false); camera.aspect = stageCam.aspect = w / h; camera.updateProjectionMatrix(); stageCam.updateProjectionMatrix();
   // the stage camera backs off on a narrow screen so all six fit
   const half = Math.atan(Math.tan(THREE.MathUtils.degToRad(20)) * (w / h)), dist = Math.max(7.4, 4.7 / Math.tan(half));
   stageCam.position.set(0, 1.5 + (dist - 7.4) * 0.12, dist); stageCam.lookAt(0, 0.75, 0);
@@ -128,7 +146,7 @@ let jumbo = null;
   for (const x of [-10, -3.5, 3.5, 10]) {
     const l = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.3, 0.6), new THREE.MeshBasicMaterial({ color: "#fff4d8" })); l.position.set(x, 13, -3); scene.add(l);
     const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 3, 13, 10, 1, true), new THREE.MeshBasicMaterial({ color: "#fff2d6", transparent: true, opacity: 0.045, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
-    beam.position.set(x * 0.8, 6.5, -1.5); scene.add(beam);
+    beam.position.set(x * 0.8, 6.5, -1.5); scene.add(beam); beams.push(beam);
   }
   // the hoops: padded base, pole, arm, glass, rim, net
   for (const s of [-1, 1]) {
@@ -247,7 +265,7 @@ const committed = (d) => d.whiff > 0 || d.landT > 0 || d.dashT > 0 || (!d.onGrou
 function stealPhase(p, opp) {
   const cyc = opp.dashT > 0 ? 0.65 : 0.95, t = (worldT + opp.i * 0.37) % cyc;
   // SHADE's sticky hands open it wider; a ball handler protecting it low closes it down
-  const win = ((isTouch && p.i === 0 ? 0.36 : 0.3) + (p.ch.def - 1) * 0.25 + (p.ch.name === "SHADE" ? 0.12 : 0)) * (opp.protect ? 0.5 : 1);
+  const win = ((isTouch && p.i === 0 ? 0.36 : 0.3) + (p.ch.def - 1) * 0.25 + (p.ch.name === "SHADE" ? 0.12 : 0)) * (opp.protect ? 0.5 : 1) * TUNE.stealWin;
   const open = t >= cyc - win || t < 0.07, warn = !open && t >= cyc - win - 0.4 ? (t - (cyc - win - 0.4)) / 0.4 : 0;
   return { open, warn };
 }
@@ -538,8 +556,8 @@ const cutinEl = document.getElementById("cutin");
 function trySpecial(p) {
   if (p.sp < 1 || busy(p) || p.shooting || p.charge || phase !== "play") return;
   if (p.ch.name === "SHADE" && ball.owner === p) { say(p, "GOT IT ALREADY", "#9088a4"); return; }
-  p.sp = 0; p.charge = { t: WIND_UP, dur: WIND_UP };
-  other(p).ai.dodge = Math.random() < 0.45;
+  p.sp = 0; p.charge = { t: TUNE.windUp, dur: TUNE.windUp };
+  other(p).ai.dodge = Math.random() < TUNE.cpuDodge;
   beep(180, WIND_UP, "sawtooth", 0.045, 520); noise(WIND_UP, 0.06, 900);
   fx.impact({ slow: 0.25, punch: 0.4 }); fx.ring(p.x, p.z, p.ch.col, 2.2, 0.6);
   cutinEl.innerHTML = `<i style="background:${p.ch.dark}"></i><b style="color:${p.ch.col}">${p.name}</b><span>${T(p.ch.special)}</span>`;
@@ -671,7 +689,7 @@ function updatePlayer(p, c, dt) {
   if (p.decoy && (p.decoy.t -= dt) <= 0) p.decoy = null;
   if (p.boostT > 0 && p.ch.name === "BLAZE" && Math.random() < 0.6) fx.shard({ x: p.x, y: 0.2, z: p.z, g: -1, vy: 1, floor: false, life: 0.35, c: ["#ff4a2a", "#ff9a2a"], size: 0.1 });
   p.landA = Math.max(0, p.landA - dt * 5);
-  if (phase === "play") gainSp(p, dt * 0.045);
+  if (phase === "play") gainSp(p, dt * TUNE.spRate);
   if (p.fireT > 0 && (p.fireT -= dt) <= 0 && p.streak < 2) p.fire = false;
   if (p.fire && Math.random() < 0.8) fx.shard({ x: p.x + rnd(-0.3, 0.3), y: p.y + rnd(0.2, 2), z: p.z + rnd(-0.3, 0.3), vy: rnd(1.5, 3), g: -1, floor: false, life: 0.4, c: ["#ff4a2a", "#ff9a2a", "#ffe03c"], size: 0.09 });
   if (c.special) trySpecial(p);
@@ -698,14 +716,14 @@ function updatePlayer(p, c, dt) {
   const has = ball.owner === p;
   let mx = c.mx, mz = c.mz; const ml = Math.hypot(mx, mz); if (ml > 1) { mx /= ml; mz /= ml; }
   if (c.dash && p.dashCd <= 0 && p.onGround && !busyShot(p) && p.stam >= DASH_COST(p) && p.fallen <= 0) startDash(p, c.dashDir ?? (ml > 0.2 ? norm(mx, mz) : p.face));
-  const sp = 5.2 * p.ch.spd * (has ? 0.92 : 1) * (p.whiff > 0 ? 0.35 : 1) * (p.i === 1 && !dbg.auto ? 0.93 : 1) * (p.fire ? 1.1 : 1) * (p.boostT > 0 ? 1.3 : 1) * (p.slowT > 0 ? 0.5 : 1) * (p.phantomT > 0 ? 1.2 : 1);
+  const sp = TUNE.speed * 5.2 * p.ch.spd * (has ? 0.92 : 1) * (p.whiff > 0 ? 0.35 : 1) * (p.i === 1 && !dbg.auto ? 0.93 : 1) * (p.fire ? 1.1 : 1) * (p.boostT > 0 ? 1.3 : 1) * (p.slowT > 0 ? 0.5 : 1) * (p.phantomT > 0 ? 1.2 : 1);
   if (p.moveT > 0) {
     // a dribble move carries him; a spin turns him all the way round
     p.moveT -= dt; p.vx = p.moveV[0]; p.vz = p.moveV[1];
     if (p.spinT > 0) p.spinT -= dt;
     if ((p.ghostT -= dt) <= 0) { p.ghostT = 0.05; fx.ghost(p.body.root, p.ch.col); }
   } else if (p.dashT > 0) {
-    p.dashT -= dt; p.vx = p.dashV[0] * 14 * p.ch.spd; p.vz = p.dashV[1] * 14 * p.ch.spd; dashContact(p);
+    p.dashT -= dt; p.vx = p.dashV[0] * 14 * p.ch.spd * TUNE.dash; p.vz = p.dashV[1] * 14 * p.ch.spd * TUNE.dash; dashContact(p);
     if ((p.ghostT -= dt) <= 0) { p.ghostT = 0.04; fx.ghost(p.body.root, p.ch.col); }
   } else if (!p.shooting && p.gather <= 0 && p.fallen <= 0) {
     if (p.onGround) { p.vx = mx * sp; p.vz = mz * sp; } else { p.vx += (mx * sp - p.vx) * Math.min(1, dt * 3); p.vz += (mz * sp - p.vz) * Math.min(1, dt * 3); }
@@ -713,7 +731,7 @@ function updatePlayer(p, c, dt) {
   } else if (p.fallen > 0 && p.onGround) { p.vx *= 0.85; p.vz *= 0.85; }
   // a defender squares up to the ball handler
   if (ball.owner === opp && p.fallen <= 0 && p.dashT <= 0) p.face = norm(opp.x - p.x, opp.z - p.z);
-  if (c.jump && p.onGround && !p.shooting && p.whiff <= 0 && p.fallen <= 0 && p.moveT <= 0) { p.vy = 6.6 * p.ch.jmp * (p.fire ? 1.12 : 1); p.onGround = false; fx.dust(p.x, p.z, 4); }
+  if (c.jump && p.onGround && !p.shooting && p.whiff <= 0 && p.fallen <= 0 && p.moveT <= 0) { p.vy = 6.6 * p.ch.jmp * (p.fire ? 1.12 : 1) * TUNE.jump; p.onGround = false; fx.dust(p.x, p.z, 4); }
   if (c.shoot && p.fallen <= 0) {
     if (has && !p.shooting && p.gather <= 0 && p.moveT <= 0) { if (canDunk(p)) startDunk(p); else if (p.onGround) p.gather = 0.13; else startShot(p); }
     else if (!has && p.cd <= 0 && ball.owner === opp) trySteal(p, opp);
@@ -790,7 +808,7 @@ function cpuControl(me, dt) {
     if (o.gather > 0 && !ai.saw) { ai.saw = true; if (close && me.onGround && Math.random() < 0.4) ai.jumpIn = rnd(0.01, 0.06); }
     if (o.shooting && !ai.decided) { ai.decided = true; if (close && me.onGround && ai.jumpIn <= 0 && Math.random() < 0.5) ai.jumpIn = rnd(0.02, 0.12); }
     if (!o.shooting) ai.decided = false; if (o.gather <= 0 && o.fakeT <= 0) ai.saw = false;
-    if (me.cd <= 0 && stealOpen(me, o) && Math.random() < 0.1) c.shoot = true;
+    if (me.cd <= 0 && stealOpen(me, o) && Math.random() < TUNE.cpuSteal) c.shoot = true;
     else if (me.cd <= 0 && inReach(me, o) && Math.random() < dt * 0.35) c.shoot = true;
   } else {
     go(ball.x, ball.z, 0.1);
@@ -957,6 +975,7 @@ function step(dt) {
     return;
   }
   if (pressed.has("KeyV") || pressed.has("KeyC")) nextView();
+  if (pressed.has("KeyP")) { pixelMode = !pixelMode; localStorage.setItem("hoops3d.pixel", pixelMode ? "on" : "off"); resize(); }
   if (screen === "over") { for (const p of players) updatePlayer(p, NONE, dt); updateBall(dt); return; }
   if (phase === "countdown") {
     const n = 3 - Math.floor(stateT / 0.6);
@@ -1006,7 +1025,7 @@ function drawStage(dt) {
     f.spot.material.opacity = on ? 0.6 + Math.sin(worldT * 6) * 0.15 : 0.18; f.spot.position.z = f.b.root.position.z;
   });
   if (locked && Math.random() < 0.5) { const f = stageFigs[pickI]; }
-  renderer.render(stage, stageCam);
+  present(stage, stageCam);
 }
 function draw(dt) {
   if (screen === "select") { drawStage(dt); return; }
@@ -1113,7 +1132,7 @@ function draw(dt) {
     const sk = document.getElementById("bSkill"); sk.classList.toggle("gold", me.sp >= 1); sk.style.opacity = me.sp >= 1 ? 1 : 0.5;
     document.getElementById("bMove").style.opacity = ball.owner === me ? 1 : 0.4;
   }
-  renderer.render(scene, camera);
+  present(scene, camera);
 }
 
 const dbg = { auto: false, hold: false };   // tests: the CPU plays you too; hold freezes the loop
@@ -1126,6 +1145,7 @@ function frame(real) {
   fx.update(dt, camera, real);
   if (screen === "over" && (keys.has("KeyR") || keys.has("Enter"))) { for (const p of players) p.fallen = 0; newGame(); }
   draw(real);
+  devStats?.update();
 }
 function loop(now) {
   if (dbg.hold) { last = now; requestAnimationFrame(loop); return; }
@@ -1134,7 +1154,23 @@ function loop(now) {
   frame(real);
   requestAnimationFrame(loop);
 }
+let devStats = null;
+if (new URLSearchParams(location.search).has("dev")) {
+  Promise.all([import("https://cdn.jsdelivr.net/npm/lil-gui@0.20/+esm"), import("https://cdn.jsdelivr.net/npm/stats-gl@2/+esm")]).then(([lil, sg]) => {
+    const gui = new lil.default({ title: "TUNING (?dev)" });
+    const f = gui.addFolder("PLAY");
+    f.add(TUNE, "speed", 0.5, 1.6, 0.01); f.add(TUNE, "dash", 0.5, 1.6, 0.01); f.add(TUNE, "jump", 0.6, 1.5, 0.01); f.add(TUNE, "stealWin", 0.3, 2, 0.01);
+    const c = gui.addFolder("CPU & SKILLS");
+    c.add(TUNE, "cpuSteal", 0, 0.4, 0.01); c.add(TUNE, "cpuDodge", 0, 1, 0.01); c.add(TUNE, "windUp", 0.2, 1.5, 0.01); c.add(TUNE, "spRate", 0, 0.3, 0.005);
+    const l = gui.addFolder("LOOK");
+    l.add(pixPass, "normalEdgeStrength", 0, 2, 0.01); l.add(pixPass, "depthEdgeStrength", 0, 2, 0.01);
+    l.add({ pixel: Math.max(2, Math.round(innerHeight / LOW_H)) }, "pixel", 1, 8, 1).onChange((v) => pixPass.setPixelSize(v));
+    l.add({ toggle: () => { pixelMode = !pixelMode; resize(); } }, "toggle").name("pixel pass on/off (P)");
+    gui.add({ copy: () => navigator.clipboard?.writeText(JSON.stringify(TUNE)) }, "copy").name("copy numbers");
+    try { devStats = new sg.default({ trackGPU: false, horizontal: true }); document.body.appendChild(devStats.dom); devStats.init(renderer); } catch (e) { console.warn("stats-gl", e); }
+  }).catch((e) => console.warn("dev tools did not load", e));
+}
 showSelect();
 requestAnimationFrame(loop);
-window.hoops3d = { get players() { return players; }, ball, get phase() { return phase; }, get screen() { return screen; }, step, draw, frame, cpuControl, newGame, dbg, fx,
+window.hoops3d = { TUNE, get pixelMode() { return pixelMode; }, pixPass, get players() { return players; }, ball, get phase() { return phase; }, get screen() { return screen; }, step, draw, frame, cpuControl, newGame, dbg, fx,
   pick(i) { pickI = i; drawCard(); }, lockIn, trySpecial, dribbleMove, scene, camera, startGame, set cpuI(v) { cpuI = v; } };

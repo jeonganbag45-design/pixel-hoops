@@ -1,7 +1,7 @@
 // Effects in 3D, in the 2D game's language: pixel shards that fly and bounce, shockwave rings on the floor, bright
 // flashes, and the big pieces for specials (a pillar of fire, ice spikes, a bolt, a black hole, a clock face).
 // Plus the feel: hitstop, slow motion, camera shake and a zoom punch, read by the game loop.
-import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js";
+import * as THREE from "three";
 
 export function createFx(scene) {
   const fx = { stop: 0, slow: 0, shake: 0, punch: 0 };
