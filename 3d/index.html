@@ -3,149 +3,160 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<meta name="theme-color" content="#14111c">
-<title>Hoops 3D</title>
+<meta name="theme-color" content="#101218">
+<title>HOOPS 3D · 1 on 1 Streetball</title>
 <style>
-  /* arcade streetball: flat inks and stickers, thick black outlines, hard offset shadows, halftone dots,
-     a heavy slab face for big words and the game's own pixel font (Galmuri) for labels, matching the pixel effects */
-  @font-face { font-family: "Galmuri"; src: url("../fonts/Galmuri11-Bold.woff2") format("woff2"); }
+  /* a sports-broadcast look: solid dark plates, slanted team-color edges, condensed type, nothing translucent or glowing */
   :root {
-    --ink: #14111c; --paper: #f4ead3; --hot: #ff4f1f; --sun: #ffd21f; --sky: #3fd0ff; --mint: #3ee07f; --bad: #ff3b4e;
-    --slab: Impact, "Haettenschweiler", "Arial Black", "Malgun Gothic", sans-serif; --pix: "Galmuri", "Malgun Gothic", monospace;
-    --hard: 4px 4px 0 var(--ink); --dots: radial-gradient(rgba(20, 17, 28, .16) 1.1px, transparent 1.6px);
+    --plate: #101218; --plate2: #1a1d27; --line: #2c3040; --text: #f3f1ea; --dim: #8d93a8; --hot: #ff4f1f; --sun: #ffd21f; --good: #3ee07f; --bad: #ff3b4e;
+    --cond: "Bahnschrift", "DIN Condensed", "Oswald", "Arial Narrow", "Malgun Gothic", sans-serif;
+    --body: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", system-ui, sans-serif;
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: #0d1020; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+  html, body { margin: 0; height: 100%; background: var(--plate); overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
   #c { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
-  .ui { position: fixed; pointer-events: none; font-family: var(--pix); color: var(--paper); }
-  .tag { display: inline-block; font-family: var(--pix); font-size: 11px; color: var(--ink); background: var(--sun); padding: 2px 7px; border: 2px solid var(--ink); transform: rotate(-2deg); }
-  /* words with an inked edge and a hard drop */
-  .slab { font-family: var(--slab); letter-spacing: .02em; -webkit-text-stroke: 2px var(--ink); paint-order: stroke fill; text-shadow: 3px 3px 0 var(--ink); }
+  .ui { position: fixed; pointer-events: none; color: var(--text); font-family: var(--body); }
+  button { font-family: var(--cond); cursor: pointer; }
 
-  /* ---- the scoreboard: a black slab with team tabs and a yellow clock sticker ---- */
-  #score { top: 10px; left: 50%; transform: translateX(-50%); display: none; align-items: stretch; background: var(--ink); border: 3px solid var(--ink); box-shadow: var(--hard); }
-  #score span, #score b { display: flex; align-items: center; padding: 0 12px; height: 44px; }
-  #na, #nb { font-family: var(--pix); font-size: 14px; color: var(--ink) !important; min-width: 92px; justify-content: center; }
-  #na { background: var(--ca, #fff); } #nb { background: var(--cb, #fff); }
-  #score b { font-family: var(--slab); font-size: 34px; color: var(--paper); min-width: 58px; justify-content: center; font-weight: normal; }
-  #clock { font-family: var(--slab); font-size: 22px; color: var(--ink); background: var(--sun); min-width: 74px; justify-content: center; transform: rotate(-3deg) scale(1.08); border: 3px solid var(--ink); margin: -6px 0; height: 56px !important; }
+  /* ---- menu: the title and a list down the left, the court behind ---- */
+  #menu { inset: 0; pointer-events: none; display: flex; flex-direction: column; justify-content: center; padding-left: 7vw; background: linear-gradient(90deg, rgba(16,18,24,.92) 0, rgba(16,18,24,.75) 34%, transparent 62%); }
+  .title h1 { margin: 0; font-family: var(--cond); font-weight: 800; font-size: clamp(64px, 11vw, 140px); line-height: .85; letter-spacing: -.02em; font-style: italic; }
+  .title h1::after { content: ""; display: block; width: 1.3em; height: 10px; margin-top: 12px; background: var(--hot); transform: skewX(-20deg); }
+  .title p { margin: 14px 0 34px; font-family: var(--cond); font-size: 20px; letter-spacing: .32em; color: var(--dim); }
+  #menu nav { display: flex; flex-direction: column; gap: 6px; width: min(380px, 80vw); pointer-events: auto; }
+  #menu nav button, #menu nav a { all: unset; cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; padding: 13px 18px 13px 16px; background: var(--plate2); border-left: 5px solid transparent;
+    font-family: var(--cond); font-size: 24px; font-weight: 700; letter-spacing: .04em; color: var(--text); transition: transform .12s, border-color .12s, background .12s; }
+  #menu nav button small, #menu nav a small { font-size: 13px; font-weight: 600; color: var(--dim); letter-spacing: .08em; }
+  #menu nav button:hover, #menu nav a:hover { transform: translateX(10px); border-left-color: var(--hot); background: #22263a; }
+  #menu nav a { font-size: 16px; color: var(--dim); background: transparent; }
+  .howto { pointer-events: auto; width: min(720px, 86vw); background: var(--plate); border-left: 6px solid var(--hot); padding: 24px 28px; }
+  .howto h2 { margin: 0 0 14px; font-family: var(--cond); font-size: 40px; font-style: italic; }
+  .howto ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  .howto li { display: grid; grid-template-columns: 110px 80px 1fr; gap: 12px; align-items: baseline; padding: 10px 0; border-top: 1px solid var(--line); }
+  .howto li b { font-family: var(--cond); font-size: 22px; } .howto li span { font-family: var(--cond); font-size: 15px; color: var(--sun); } .howto li em { font-style: normal; font-size: 14px; color: #c6cad8; line-height: 1.45; }
+  .howto .back, #selBtns button, .row button { font-family: var(--cond); font-size: 18px; font-weight: 700; letter-spacing: .06em; color: var(--text); background: var(--plate2); border: 0; padding: 12px 26px; margin-top: 18px; }
+  .primary, #playB { background: var(--hot) !important; color: #fff !important; }
+  button:active { transform: translateY(2px); }
 
-  /* ---- SP and stamina: chunky segmented gauges ---- */
-  #bars { top: 70px; left: 50%; transform: translateX(-50%); display: none; gap: 110px; }
-  .bar { position: relative; width: 170px; height: 14px; background: #2a2638 repeating-linear-gradient(90deg, transparent 0 16px, var(--ink) 16px 17px); border: 3px solid var(--ink); box-shadow: 3px 3px 0 var(--ink); }
-  .bar i { position: absolute; left: 0; top: 0; height: 100%; display: block; }
-  .bar u { position: absolute; left: -3px; bottom: -9px; height: 5px; background: var(--mint); border: 2px solid var(--ink); display: block; text-decoration: none; }
-  .bar b { position: absolute; top: 16px; left: 0; font-family: var(--pix); font-size: 12px; font-weight: normal; color: var(--ink); background: var(--sun); padding: 1px 6px; border: 2px solid var(--ink); white-space: nowrap; transform: rotate(-2deg); }
-  .bar b:empty { display: none; }
-  .bar.r i, .bar.r u { left: auto; right: 0; } .bar.r b { left: auto; right: 0; transform: rotate(2deg); }
+  /* ---- select: the six on the court; a stat card at the bottom ---- */
+  #sel { inset: 0; display: flex; flex-direction: column; align-items: center; padding: 22px 16px 18px; }
+  #sel header { text-align: center; } .mode { font-family: var(--cond); font-size: 14px; letter-spacing: .3em; color: var(--hot); }
+  #sel h1 { margin: 2px 0 0; font-family: var(--cond); font-size: 40px; font-style: italic; font-weight: 800; }
+  #sel button { pointer-events: auto; }
+  #tabs { display: flex; gap: 4px; margin-top: 12px; }
+  .tab { font-size: 16px; font-weight: 700; letter-spacing: .06em; color: var(--dim); background: var(--plate); border: 0; border-bottom: 4px solid transparent; padding: 8px 14px; }
+  .tab.on { color: var(--text); border-bottom-color: var(--c); background: var(--plate2); }
+  #card { margin-top: auto; display: flex; gap: 22px; padding: 18px 22px; background: var(--plate); border-top: 5px solid var(--c); max-width: 960px; width: 100%; pointer-events: none; }
+  .who { min-width: 200px; }
+  .who b { display: block; font-family: var(--cond); font-size: 46px; font-weight: 800; font-style: italic; line-height: 1; color: var(--c); }
+  .who i { display: block; margin: 4px 0 12px; font-style: normal; font-size: 12px; font-weight: 700; letter-spacing: .14em; color: var(--dim); }
+  .stats { display: grid; grid-template-columns: 38px 1fr; gap: 6px 10px; align-items: center; font-family: var(--cond); font-size: 13px; color: var(--dim); }
+  .sbar { height: 6px; background: var(--line); } .sbar u { display: block; height: 100%; background: var(--c); }
+  .abil { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; flex: 1; }
+  .ab { padding: 12px 14px; background: var(--plate2); }
+  .tag { font-family: var(--cond); font-size: 12px; letter-spacing: .16em; color: var(--dim); }
+  .ab b { display: block; margin: 6px 0 4px; font-family: var(--cond); font-size: 21px; font-weight: 700; font-style: italic; }
+  .ab em { font-style: normal; font-size: 12.5px; line-height: 1.45; color: #c6cad8; }
+  .ab.sk b { color: var(--sun); }
+  #selBtns { display: flex; gap: 8px; } #selBtns button { margin-top: 12px; } #playB { padding: 12px 64px !important; font-size: 22px !important; }
 
-  /* ---- words in the world ---- */
+  /* ---- the match HUD ---- */
+  #hud { inset: 0; }
+  #bug { position: absolute; top: 14px; left: 14px; display: grid; gap: 2px; min-width: 230px; }
+  .team { display: grid; grid-template-columns: 8px 1fr 52px; align-items: stretch; background: var(--plate); height: 40px; }
+  .team::before { content: ""; background: var(--c); }
+  .team .n { display: flex; align-items: center; padding: 0 12px; font-family: var(--cond); font-size: 18px; font-weight: 700; letter-spacing: .04em; }
+  .team .s { display: flex; align-items: center; justify-content: center; background: var(--plate2); font-family: var(--cond); font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .team.ball .n::after { content: ""; width: 10px; height: 10px; margin-left: 8px; border-radius: 50%; background: #f07a1a; box-shadow: inset -2px -2px 0 rgba(0,0,0,.35); }
+  .team.fire .n { color: #ffb02a; } .team.fire .s { background: var(--hot); }
+  #goal { background: var(--hot); color: #fff; font-family: var(--cond); font-size: 12px; font-weight: 700; letter-spacing: .14em; padding: 4px 12px; }
+  #meters { position: absolute; left: 14px; bottom: 16px; display: grid; gap: 8px; width: 260px; }
+  .gauge { display: grid; gap: 4px; } .gauge span { font-family: var(--cond); font-size: 13px; letter-spacing: .14em; color: var(--dim); }
+  .gbar { height: 10px; background: rgba(16,18,24,.85); border: 1px solid var(--line); } .gbar i { display: block; height: 100%; background: var(--good); transition: width .1s; }
+  .gbar.low i { background: var(--bad); } .gbar.fire i { background: var(--hot); }
+  .gbar.full i { background: var(--sun); animation: blink .5s steps(2) infinite; } .gauge.sp span { color: var(--text); }
+  @keyframes blink { 50% { opacity: .55; } }
+  #cpuMeter { position: absolute; top: 14px; right: 112px; width: 140px; } #cpuMeter .gbar { height: 6px; } #cpuMeter i { background: var(--sun); }
+  #pauseB, #muteB { position: absolute; top: 14px; pointer-events: auto; width: 40px; height: 40px; border: 0; background: var(--plate); color: var(--text); font-size: 15px; font-weight: 700; }
+  #pauseB { right: 14px; } #muteB { right: 58px; } #muteB.off { color: var(--bad); text-decoration: line-through; }
+  #hint { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); font-size: 12px; color: #c6cad8; background: rgba(16,18,24,.85); padding: 7px 14px; white-space: nowrap; max-width: 92vw; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: opacity .6s; }
+  #hint.show { opacity: 1; }
+
+  /* ---- in the world: callouts, cues, the shot meter ---- */
   #fx { inset: 0; }
-  .pop { position: absolute; transform: translate(-50%, -50%) rotate(-4deg); font-family: var(--slab); font-size: 26px; letter-spacing: .02em; white-space: nowrap;
-    -webkit-text-stroke: 3px var(--ink); paint-order: stroke fill; text-shadow: 3px 3px 0 var(--ink); animation: stamp .18s steps(3) both; }
-  .pop.big { font-size: 50px; -webkit-text-stroke: 4px var(--ink); text-shadow: 5px 5px 0 var(--ink); }
-  @keyframes stamp { from { transform: translate(-50%, -50%) rotate(-4deg) scale(1.8); } to { transform: translate(-50%, -50%) rotate(-4deg) scale(1); } }
-  /* what you can do now: a sticker over your head */
-  #cue { position: absolute; transform: translate(-50%, -50%) rotate(-3deg); display: none; white-space: nowrap; font-family: var(--slab); font-size: 26px; letter-spacing: .03em;
-    padding: 2px 14px 4px; background: var(--ink); border: 3px solid currentColor; box-shadow: 4px 4px 0 var(--ink); animation: wiggle .3s steps(2) infinite; }
-  @keyframes wiggle { 50% { transform: translate(-50%, -54%) rotate(3deg); } }
-  #meter { position: absolute; width: 92px; height: 14px; background: #2a2638; border: 3px solid var(--ink); display: none; transform: translate(-50%, -50%); box-shadow: 3px 3px 0 var(--ink); }
-  #meter i { position: absolute; left: 38%; width: 24%; top: 0; bottom: 0; background: var(--mint); }
-  #meter u { position: absolute; top: -4px; bottom: -4px; width: 5px; background: var(--paper); border: 1px solid var(--ink); }
+  .pop { position: absolute; transform: translate(-50%, -50%); font-family: var(--cond); font-size: 26px; font-weight: 800; font-style: italic; white-space: nowrap; letter-spacing: .02em;
+    text-shadow: 0 2px 0 #000, 2px 0 0 #000, -2px 0 0 #000, 0 -2px 0 #000; animation: popIn .25s ease-out both; }
+  .pop.big { font-size: 56px; }
+  @keyframes popIn { from { transform: translate(-50%, -50%) scale(.5); opacity: 0; } to { transform: translate(-50%, -50%) scale(1); opacity: 1; } }
+  #cue { position: absolute; transform: translate(-50%, -100%); display: none; white-space: nowrap; font-family: var(--cond); font-size: 20px; font-weight: 800; letter-spacing: .06em;
+    padding: 4px 12px; background: var(--plate); border-bottom: 3px solid currentColor; }
+  #meter { position: absolute; width: 12px; height: 92px; background: var(--plate); border: 2px solid var(--plate); display: none; transform: translate(-50%, -50%); }
+  #meter i { position: absolute; left: 0; right: 0; top: 40%; height: 20%; background: var(--good); }
+  #meter u { position: absolute; left: -5px; right: -5px; height: 4px; background: #fff; text-decoration: none; transform: translateY(50%); }
+  #meter.flash { display: block !important; } #meter.flash.perfect { background: var(--good); } #meter.flash.good { background: var(--sun); } #meter.flash.early, #meter.flash.late { background: var(--bad); }
+  #banner { top: 22%; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; opacity: 0; }
+  #banner b { font-family: var(--cond); font-size: clamp(48px, 7vw, 86px); font-weight: 800; font-style: italic; letter-spacing: .01em; background: var(--plate); padding: 2px 30px 6px; }
+  #banner small { margin-top: 4px; font-family: var(--cond); font-size: 16px; letter-spacing: .2em; color: var(--dim); background: var(--plate); padding: 3px 12px; }
+  #banner.on { animation: bannerIn 1.6s ease-out both; }
+  @keyframes bannerIn { 0% { opacity: 0; transform: translateX(-40px); } 12% { opacity: 1; transform: none; } 80% { opacity: 1; } 100% { opacity: 0; transform: translateX(40px); } }
+  #cutin { top: 34%; left: 0; display: flex; transform: translateX(-105%); transition: transform .16s ease-out; }
+  #cutin.r { left: auto; right: 0; transform: translateX(105%); }
+  #cutin.on { transform: none; }
+  #cutin div { background: var(--plate); border-left: 10px solid var(--c); padding: 10px 40px 12px 24px; }
+  #cutin.r div { border-left: 0; border-right: 10px solid var(--c); text-align: right; padding: 10px 24px 12px 40px; }
+  #cutin small { display: block; font-family: var(--cond); font-size: 15px; letter-spacing: .25em; color: var(--c); }
+  #cutin b { font-family: var(--cond); font-size: 52px; font-weight: 800; font-style: italic; }
 
-  /* ---- center: countdown and the result ---- */
-  #center { inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
-  .count { font-family: var(--slab); font-size: 160px; color: var(--sun); -webkit-text-stroke: 7px var(--ink); paint-order: stroke fill; text-shadow: 10px 10px 0 var(--ink); transform: rotate(-6deg); animation: slam .3s steps(4) both; }
-  .count.go { color: var(--hot); }
-  @keyframes slam { from { transform: rotate(-6deg) scale(2.6); } to { transform: rotate(-6deg) scale(1); } }
-  .result { pointer-events: auto; min-width: 460px; padding: 22px 30px 24px; background: var(--paper) var(--dots); background-size: auto, 7px 7px; color: var(--ink);
-    border: 4px solid var(--ink); box-shadow: 9px 9px 0 var(--ink); transform: rotate(-1deg); animation: slam .25s steps(3) both; position: relative; }
-  .result::before { content: ""; position: absolute; left: -4px; right: -4px; top: -4px; height: 14px; background: var(--c); border-bottom: 4px solid var(--ink); }
-  .result h2 { margin: 14px 0 6px; font-family: var(--slab); font-size: 54px; font-weight: normal; color: var(--c); -webkit-text-stroke: 3px var(--ink); paint-order: stroke fill; text-shadow: 4px 4px 0 var(--ink); }
-  .final { display: flex; align-items: center; justify-content: center; gap: 12px; font-family: var(--pix); }
-  .final span { color: var(--ink) !important; background: #fff; border: 2px solid var(--ink); padding: 2px 6px; }
-  .final b { font-family: var(--slab); font-size: 58px; font-weight: normal; } .final i { font-family: var(--slab); font-size: 40px; font-style: normal; }
-  .row { display: flex; gap: 12px; justify-content: center; margin-top: 16px; flex-wrap: wrap; }
-  .row button, .row a { font-family: var(--pix); font-size: 14px; color: var(--ink); background: #fff; border: 3px solid var(--ink); box-shadow: var(--hard); padding: 10px 16px; text-decoration: none; cursor: pointer; }
-  .row .primary { background: var(--hot); color: #fff; }
-  .row button:active, .row a:active { transform: translate(3px, 3px); box-shadow: 1px 1px 0 var(--ink); }
+  /* ---- center: the result and pause ---- */
+  #center, #pause { inset: 0; display: flex; align-items: center; justify-content: center; }
+  .result { pointer-events: auto; min-width: 480px; background: var(--plate); border-top: 6px solid var(--c, var(--hot)); padding: 26px 34px 22px; text-align: center; animation: popIn .3s ease-out both; }
+  .result h2 { margin: 0 0 12px; font-family: var(--cond); font-size: 54px; font-weight: 800; font-style: italic; }
+  .result.won h2 { color: var(--sun); } .result.lost h2 { color: var(--dim); }
+  .final { display: flex; align-items: center; justify-content: center; gap: 14px; font-family: var(--cond); }
+  .final span { font-size: 18px; font-weight: 700; letter-spacing: .06em; border-bottom: 3px solid var(--c); padding-bottom: 2px; }
+  .final b { font-size: 60px; font-weight: 800; font-variant-numeric: tabular-nums; } .final i { font-size: 40px; color: var(--dim); font-style: normal; }
+  .result p { margin: 8px 0 0; font-family: var(--cond); letter-spacing: .14em; color: var(--dim); }
+  .row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; } .row button { margin-top: 18px; }
 
-  /* ---- the skill banner: a band of the baller's color with halftone, his skill stamped on it ---- */
-  #cutin { top: 30%; left: 0; right: 0; height: 110px; display: flex; align-items: center; padding-left: 8%; transform: translateX(-110%); transition: transform .14s steps(3); }
-  #cutin.r { justify-content: flex-end; padding: 0 8% 0 0; transform: translateX(110%); text-align: right; }
-  #cutin.on { transform: translateX(0); }
-  #cutin i { position: absolute; inset: 8px -20px; background: var(--dots), var(--c); background-size: 7px 7px, auto; border-top: 5px solid var(--ink); border-bottom: 5px solid var(--ink); transform: rotate(-3deg); z-index: -1; }
-  #cutin b { display: block; font-family: var(--slab); font-size: 58px; font-weight: normal; color: #fff; -webkit-text-stroke: 4px var(--ink); paint-order: stroke fill; text-shadow: 5px 5px 0 var(--ink); line-height: 1; }
-  #cutin small { font-family: var(--pix); font-size: 14px; color: var(--ink); background: #fff; border: 2px solid var(--ink); padding: 1px 6px; }
-
-  /* ---- character select: a trading card ---- */
-  #sel { inset: 0; display: none; flex-direction: column; align-items: center; padding: 14px 16px 14px; pointer-events: none; }
-  #sel header { text-align: center; }
-  .brand { font-family: var(--pix); font-size: 12px; color: var(--ink); background: var(--sun); border: 2px solid var(--ink); padding: 2px 8px; } .brand em { font-style: normal; color: var(--hot); }
-  #sel h1 { margin: 6px 0 0; font-family: var(--slab); font-size: 44px; font-weight: normal; color: #fff; -webkit-text-stroke: 3px var(--ink); paint-order: stroke fill; text-shadow: 4px 4px 0 var(--ink); transform: rotate(-2deg); }
-  #sel button { pointer-events: auto; cursor: pointer; }
-  #tabs { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; justify-content: center; }
-  .tab { font-family: var(--pix); font-size: 13px; color: var(--ink); background: var(--paper); border: 3px solid var(--ink); box-shadow: 3px 3px 0 var(--ink); padding: 5px 12px; }
-  .tab.on { background: var(--c); transform: translateY(-3px) rotate(-3deg); box-shadow: 4px 6px 0 var(--ink); }
-  #card { margin-top: auto; display: flex; gap: 18px; align-items: stretch; padding: 14px 18px 16px; max-width: 940px; position: relative; color: var(--ink);
-    background: var(--paper) var(--dots); background-size: auto, 7px 7px; border: 4px solid var(--ink); box-shadow: 8px 8px 0 var(--ink); }
-  #card::before { content: ""; position: absolute; left: -4px; top: -4px; bottom: -4px; width: 16px; background: var(--c); border-right: 4px solid var(--ink); }
-  .who { min-width: 190px; padding-left: 12px; }
-  .who b { display: block; font-family: var(--slab); font-size: 46px; font-weight: normal; color: var(--c); -webkit-text-stroke: 3px var(--ink); paint-order: stroke fill; text-shadow: 3px 3px 0 var(--ink); line-height: 1; }
-  .who i { display: inline-block; margin: 6px 0 10px; font-style: normal; font-size: 12px; background: var(--ink); color: var(--paper); padding: 2px 6px; }
-  .stats { display: grid; grid-template-columns: 34px 1fr; gap: 5px 8px; align-items: center; font-size: 11px; }
-  .sbar { height: 10px; background: #fff repeating-linear-gradient(90deg, transparent 0 19%, var(--ink) 19% 20%); border: 2px solid var(--ink); } .sbar u { display: block; height: 100%; background: var(--c); }
-  .abil { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-  .ab { padding: 10px 12px; background: #fff; border: 3px solid var(--ink); box-shadow: 4px 4px 0 var(--ink); }
-  .ab b { display: block; margin: 7px 0 4px; font-family: var(--slab); font-size: 22px; font-weight: normal; letter-spacing: .02em; }
-  .ab em { display: block; font-style: normal; font-size: 11px; line-height: 1.45; color: #4a4458; }
-  .ab.sk { background: var(--sun); } .ab.sk .tag { background: var(--hot); color: #fff; }
-  #selBtns { display: flex; gap: 12px; margin-top: 14px; align-items: center; }
-  #selBtns button { font-family: var(--slab); color: var(--ink); background: var(--paper); border: 3px solid var(--ink); box-shadow: var(--hard); font-size: 26px; width: 50px; height: 50px; line-height: 1; }
-  #selBtns #playB { width: auto; padding: 0 56px; font-size: 30px; letter-spacing: .06em; color: #fff; background: var(--hot); -webkit-text-stroke: 2px var(--ink); paint-order: stroke fill; transform: rotate(-2deg); }
-  #prevB, #nextB { font-family: var(--pix) !important; font-size: 20px !important; }
-  #selBtns button:active { transform: translate(3px, 3px); box-shadow: 1px 1px 0 var(--ink); }
-  #sel small { font-size: 11px; margin-top: 8px; color: var(--paper); background: var(--ink); padding: 3px 8px; }
-
-  /* ---- help strip, view button ---- */
-  #help { bottom: 10px; left: 50%; transform: translateX(-50%); font-size: 11px; color: var(--paper); white-space: nowrap; padding: 5px 10px; background: var(--ink); border: 2px solid #3a3550; max-width: 96vw; overflow: hidden; text-overflow: ellipsis; }
-  #viewB { position: fixed; top: 14px; right: 14px; display: none; font-family: var(--pix); font-size: 12px; color: var(--ink); background: var(--paper); border: 3px solid var(--ink); box-shadow: 3px 3px 0 var(--ink); padding: 6px 10px; cursor: pointer; z-index: 3; }
-
-  /* ---- touch: inked round buttons ---- */
+  /* ---- touch ---- */
   #touch { inset: 0; display: none; }
-  #touch .b { position: absolute; pointer-events: auto; border-radius: 50%; border: 3px solid var(--ink); background: var(--paper); color: var(--ink); font-family: var(--slab); letter-spacing: .03em;
-    display: flex; align-items: center; justify-content: center; box-shadow: 4px 4px 0 var(--ink); opacity: .92; }
-  #touch .b.on { transform: translate(3px, 3px); box-shadow: 1px 1px 0 var(--ink); background: var(--sun); }
-  #touch .b.gold { background: var(--sun); animation: wiggle2 .3s steps(2) infinite; }
-  @keyframes wiggle2 { 50% { transform: rotate(6deg); } }
-  #bShoot { width: 112px; height: 112px; right: 36px; bottom: 36px; font-size: 24px; background: var(--hot) !important; color: #fff !important; -webkit-text-stroke: 2px var(--ink); paint-order: stroke fill; }
-  #bJump { width: 72px; height: 72px; right: 164px; bottom: 26px; font-size: 17px; }
-  #bDash { width: 72px; height: 72px; right: 58px; bottom: 164px; font-size: 17px; background: var(--sky); }
-  #bMove { width: 64px; height: 64px; right: 170px; bottom: 112px; font-size: 15px; }
-  #bSkill { width: 64px; height: 64px; right: 150px; bottom: 196px; font-size: 15px; background: var(--sun); }
-  #stick { position: absolute; width: 110px; height: 110px; border-radius: 50%; border: 3px dashed rgba(244, 234, 211, .6); display: none; transform: translate(-50%, -50%); }
-  #knob { position: absolute; width: 50px; height: 50px; border-radius: 50%; background: var(--paper); border: 3px solid var(--ink); box-shadow: 3px 3px 0 var(--ink); display: none; transform: translate(-50%, -50%); }
+  body.touch.ingame #touch { display: block; } body.touch #meters { bottom: auto; top: 112px; width: 200px; } body.touch #hint { display: none; }
+  #touch .b { position: absolute; pointer-events: auto; border-radius: 50%; background: rgba(16,18,24,.8); color: var(--text); font-family: var(--cond); font-weight: 800; letter-spacing: .04em;
+    display: flex; align-items: center; justify-content: center; border: 2px solid var(--line); }
+  #touch .b.on { background: var(--hot); border-color: var(--hot); }
+  #bShoot { width: 116px; height: 116px; right: 34px; bottom: 34px; font-size: 22px; border-color: var(--hot) !important; }
+  #bTurbo { width: 76px; height: 76px; right: 168px; bottom: 26px; font-size: 15px; }
+  #bTrick { width: 70px; height: 70px; right: 52px; bottom: 166px; font-size: 15px; } #bTrick.dim { opacity: .4; }
+  #bSpecial { width: 70px; height: 70px; right: 160px; bottom: 132px; font-size: 13px; } #bSpecial.ready { border-color: var(--sun); color: var(--sun); }
+  #stick { position: absolute; width: 120px; height: 120px; border-radius: 50%; border: 2px solid rgba(243,241,234,.35); display: none; transform: translate(-50%, -50%); }
+  #knob { position: absolute; width: 54px; height: 54px; border-radius: 50%; background: rgba(243,241,234,.85); display: none; transform: translate(-50%, -50%); }
 
-  #rotate { position: fixed; inset: 0; background: #0d1020; color: var(--paper); font-family: var(--pix); font-size: 22px; display: none; align-items: center; justify-content: center; z-index: 9; }
+  #rotate { position: fixed; inset: 0; background: var(--plate); color: var(--text); font-family: var(--cond); font-size: 24px; display: none; align-items: center; justify-content: center; z-index: 9; }
   @media (orientation: portrait) and (pointer: coarse) { #rotate { display: flex; } }
-  @media (max-height: 480px) {
-    #card { padding: 10px 12px 12px; gap: 12px; } .who b { font-size: 34px; } .ab { padding: 7px 9px; } .ab b { font-size: 17px; } .ab em { font-size: 10px; }
-    #sel h1 { font-size: 30px; } .count { font-size: 110px; } .result { min-width: 360px; padding: 16px 20px; } .result h2 { font-size: 40px; }
-    #bars { top: 64px; gap: 70px; } .bar { width: 130px; }
+  @media (max-height: 520px) {
+    .title p { margin-bottom: 16px; } #menu nav button { padding: 9px 16px; font-size: 20px; }
+    #card { padding: 12px 14px; gap: 12px; } .who b { font-size: 34px; } .ab { padding: 8px 10px; } .ab b { font-size: 17px; } .ab em { font-size: 11px; }
+    #sel h1 { font-size: 30px; } .result { min-width: 360px; padding: 18px 22px; } .result h2 { font-size: 40px; }
   }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
-<div class="ui" id="score"><span id="na"></span><b id="sa">0</b><span id="clock">1:00</span><b id="sb">0</b><span id="nb"></span></div>
 <div class="ui" id="fx"><div id="cue"></div><div id="meter"><i></i><u></u></div></div>
-<div class="ui" id="bars"><div class="bar" id="spA"><i></i><u></u><b></b></div><div class="bar r" id="spB"><i></i><u></u><b></b></div></div>
+<div class="ui" id="hud" style="display:none">
+  <div id="bug"><div class="team" id="pA"><span class="n"></span><span class="s">0</span></div><div class="team" id="pB"><span class="n"></span><span class="s">0</span></div><div id="goal"></div></div>
+  <div id="cpuMeter"><div class="gbar"><i id="cpuSp"></i></div></div>
+  <div id="meters"><div class="gauge"><span>TURBO · SHIFT</span><div class="gbar"><i id="turboBar"></i></div></div><div class="gauge sp"><span id="spLabel">SPECIAL</span><div class="gbar"><i id="spBar"></i></div></div></div>
+  <button id="muteB" aria-label="sound">♪</button><button id="pauseB" aria-label="pause">II</button>
+  <div id="hint"></div>
+</div>
+<div class="ui" id="banner"></div>
 <div class="ui" id="cutin"></div>
-<button id="viewB"></button>
 <div class="ui" id="center"></div>
-<div class="ui" id="sel"></div>
-<div class="ui" id="help"></div>
-<div class="ui" id="touch"><div id="stick"></div><div id="knob"></div><div class="b" id="bDash">DASH</div><div class="b" id="bMove">MOVE</div><div class="b" id="bSkill">SKILL</div><div class="b" id="bJump">JUMP</div><div class="b" id="bShoot">SHOOT</div></div>
+<div class="ui" id="pause" style="display:none"></div>
+<div class="ui" id="menu"></div>
+<div class="ui" id="sel" style="display:none"></div>
+<div class="ui" id="touch"><div id="stick"></div><div id="knob"></div><div class="b" id="bTrick">TRICK</div><div class="b" id="bSpecial">SPECIAL</div><div class="b" id="bTurbo">TURBO</div><div class="b" id="bShoot">SHOOT</div></div>
 <div id="rotate">가로로 돌려주세요</div>
 <script type="importmap">{ "imports": { "three": "./vendor/three/build/three.module.js", "three/addons/": "./vendor/three/examples/jsm/" } }</script>
 <script type="module" src="game3d.js"></script>
