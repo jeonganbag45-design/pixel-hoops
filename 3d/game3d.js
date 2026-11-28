@@ -47,14 +47,16 @@ const HELP_EN = "RCLICK/WASD MOVE   SPACE SHOOT/STEAL (HOLD, LET GO AT THE TOP; 
 
 // ---------- renderer, scene, camera ----------
 const canvas = document.getElementById("c");
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "low-power" });
-renderer.setPixelRatio(1);
-renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.BasicShadowMap;
+// a clean, smooth picture: antialiased, soft shadows, filmic color (the pixel look is optional now: P)
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5));                    // capped, for the phone's battery
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
 const scene = new THREE.Scene();
-scene.background = new THREE.Color("#0b0914"); scene.fog = new THREE.Fog("#0b0914", 34, 70);
+scene.background = new THREE.Color("#0a0e1c"); scene.fog = new THREE.Fog("#0a0e1c", 34, 70);
 const camera = new THREE.PerspectiveCamera(32, 16 / 9, 0.1, 140);
 const LOW_H = 270;                                     // the internal picture is 270 pixels tall, whatever the screen
-let pixelMode = localStorage.getItem("hoops3d.pixel") !== "off";
+let pixelMode = localStorage.getItem("hoops3d.pixel") === "on";
 const composer = new EffectComposer(renderer);
 const pixPass = new RenderPixelatedPass(3, scene, camera, { normalEdgeStrength: 0.35, depthEdgeStrength: 0.45 });
 composer.addPass(pixPass); composer.addPass(new OutputPass());
@@ -65,17 +67,18 @@ function present(sc, cam) { for (const b of beams) b.visible = !pixelMode; if (p
 function resize() {
   const w = innerWidth, h = innerHeight;
   if (pixelMode) { renderer.setSize(w, h, false); composer.setSize(w, h); pixPass.setPixelSize(Math.max(2, Math.round(h / LOW_H))); }
-  else renderer.setSize(Math.round((LOW_H * w) / h), LOW_H, false); camera.aspect = stageCam.aspect = w / h; camera.updateProjectionMatrix(); stageCam.updateProjectionMatrix();
+  else renderer.setSize(w, h, false); camera.aspect = stageCam.aspect = w / h; camera.updateProjectionMatrix(); stageCam.updateProjectionMatrix();
   // the stage camera backs off on a narrow screen so all six fit
   const half = Math.atan(Math.tan(THREE.MathUtils.degToRad(20)) * (w / h)), dist = Math.max(7.4, 4.7 / Math.tan(half));
-  stageCam.position.set(0, 1.5 + (dist - 7.4) * 0.12, dist); stageCam.lookAt(0, 0.75, 0);
+  stageCam.position.set(0, 1.3 + (dist - 7.4) * 0.12, dist); stageCam.lookAt(0, 0.3, 0);
 }
 const stage = new THREE.Scene(), stageCam = new THREE.PerspectiveCamera(40, 16 / 9, 0.1, 60);
 addEventListener("resize", resize);
 
-scene.add(new THREE.HemisphereLight("#c4bcff", "#3a2418", 1.1));
+scene.add(new THREE.HemisphereLight("#d8d4ff", "#3a2418", 1.0));
+const rimLight = new THREE.DirectionalLight("#8fb8ff", 0.6); rimLight.position.set(8, 10, -14); scene.add(rimLight);   // a cool backlight on the players' edges
 const sun = new THREE.DirectionalLight("#fff0d8", 1.7);
-sun.position.set(-6, 20, 12); sun.castShadow = true; sun.shadow.mapSize.set(1024, 512);
+sun.position.set(-6, 20, 12); sun.castShadow = true; sun.shadow.mapSize.set(2048, 1024); sun.shadow.radius = 3; sun.shadow.bias = -0.0005;
 Object.assign(sun.shadow.camera, { left: -16, right: 16, top: 10, bottom: -10, near: 1, far: 60 });
 scene.add(sun);
 const fx = createFx(scene);
@@ -86,18 +89,25 @@ const G = 18, BALL_G = 12;
 const crowd = {}, nets = [], rims = [], boards = [];
 let jumbo = null;
 (function buildArena() {
-  const px = 20, cv = document.createElement("canvas"); cv.width = HALF_L * 2 * px; cv.height = HALF_W * 2 * px;
+  const px = 64, cv = document.createElement("canvas"); cv.width = HALF_L * 2 * px; cv.height = HALF_W * 2 * px;
   const g = cv.getContext("2d"), X = (x) => (x + HALF_L) * px, Z = (z) => (z + HALF_W) * px;
-  const planks = ["#c47e44", "#b8743a", "#cc8a4e", "#b06c34"];
-  for (let y = 0; y < cv.height; y += 6) { g.fillStyle = planks[(y / 6) % 4]; g.fillRect(0, y, cv.width, 6); }
-  g.fillStyle = "#9a5c2a"; for (let y = 0; y < cv.height; y += 6) for (let x = ((y / 6) * 37) % 90; x < cv.width; x += 90) g.fillRect(x, y, 1, 6);
-  g.strokeStyle = "#f2ead8"; g.lineWidth = 2;
-  g.strokeRect(2, 2, cv.width - 4, cv.height - 4);
+  // maple boards: each one a slightly different tone, with a soft grain and staggered joints
+  const PH = 22;
+  for (let y = 0, r = 0; y < cv.height; y += PH, r++) {
+    const tone = 0.92 + ((r * 37) % 11) / 70, gr = g.createLinearGradient(0, y, 0, y + PH);
+    gr.addColorStop(0, `rgb(${214 * tone | 0},${150 * tone | 0},${92 * tone | 0})`); gr.addColorStop(1, `rgb(${198 * tone | 0},${134 * tone | 0},${80 * tone | 0})`);
+    g.fillStyle = gr; g.fillRect(0, y, cv.width, PH);
+    g.fillStyle = "rgba(90,50,20,.35)"; g.fillRect(0, y + PH - 1, cv.width, 1);
+    for (let x = ((r * 173) % 420); x < cv.width; x += 420) g.fillRect(x, y, 2, PH);
+    g.fillStyle = "rgba(255,240,210,.06)"; for (let k = 0; k < 6; k++) g.fillRect(((r * 97 + k * 211) % cv.width), y + 4 + (k % 3) * 5, 120, 1);
+  }
+  g.strokeStyle = "#fbf6ea"; g.lineWidth = 5;
+  g.strokeRect(3, 3, cv.width - 6, cv.height - 6);
   g.beginPath(); g.moveTo(X(0), 0); g.lineTo(X(0), cv.height); g.stroke();
-  g.fillStyle = "#7a2a5a"; g.beginPath(); g.arc(X(0), Z(0), 1.8 * px, 0, Math.PI * 2); g.fill(); g.stroke();
+  g.fillStyle = "rgba(255,122,26,.85)"; g.beginPath(); g.arc(X(0), Z(0), 1.8 * px, 0, Math.PI * 2); g.fill(); g.stroke();
   for (const s of [-1, 1]) {
     const base = s * HALF_L, ft = s * (HALF_L - 5.8);
-    g.fillStyle = "rgba(138,47,92,.75)"; g.fillRect(Math.min(X(base), X(ft)), Z(-2.45), Math.abs(X(base) - X(ft)), 4.9 * px);
+    g.fillStyle = "rgba(24,40,92,.78)"; g.fillRect(Math.min(X(base), X(ft)), Z(-2.45), Math.abs(X(base) - X(ft)), 4.9 * px);
     g.strokeRect(Math.min(X(base), X(ft)), Z(-2.45), Math.abs(X(base) - X(ft)), 4.9 * px);
     g.beginPath(); g.arc(X(ft), Z(0), 1.8 * px, 0, Math.PI * 2); g.stroke();
     const cz = 6.6, a = Math.asin(cz / THREE_R), rx = s * RIM_X, dx = Math.cos(a) * THREE_R;
@@ -105,15 +115,17 @@ let jumbo = null;
     if (s > 0) g.arc(X(rx), Z(0), THREE_R * px, Math.PI + a, Math.PI - a, true); else g.arc(X(rx), Z(0), THREE_R * px, -a, a, false);
     g.lineTo(X(base), Z(cz)); g.stroke();
   }
-  g.fillStyle = "#ffe03c"; g.font = "bold 28px monospace"; g.textAlign = "center"; g.fillText("PIXEL HOOPS", X(0), Z(0) + 10);
-  const tex = new THREE.CanvasTexture(cv); tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.colorSpace = THREE.SRGBColorSpace;
+  g.fillStyle = "#ffffff"; g.font = "italic 900 92px system-ui, 'Segoe UI', sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("HOOPS", X(0), Z(0));
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(HALF_L * 2, HALF_W * 2), new THREE.MeshLambertMaterial({ map: tex }));
   floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
-  const apron = new THREE.Mesh(new THREE.PlaneGeometry(80, 50), mat("#1a1424")); apron.rotation.x = -Math.PI / 2; apron.position.y = -0.01; apron.receiveShadow = true; scene.add(apron);
+  const apron = new THREE.Mesh(new THREE.PlaneGeometry(80, 50), mat("#141a2e")); apron.rotation.x = -Math.PI / 2; apron.position.y = -0.01; apron.receiveShadow = true; scene.add(apron);
   // courtside: an LED board along the far side, padded
-  const ledCv = document.createElement("canvas"); ledCv.width = 256; ledCv.height = 8; const lg = ledCv.getContext("2d");
-  lg.fillStyle = "#05040a"; lg.fillRect(0, 0, 256, 8); lg.fillStyle = "#f53cd1"; lg.font = "8px monospace"; lg.fillText("PIXEL HOOPS * 1 ON 1 STREETBALL * NO REFS NO RULES * ", 0, 7);
-  const ledTex = new THREE.CanvasTexture(ledCv); ledTex.magFilter = ledTex.minFilter = THREE.NearestFilter; ledTex.wrapS = THREE.RepeatWrapping; ledTex.repeat.set(3, 1);
+  const ledCv = document.createElement("canvas"); ledCv.width = 1024; ledCv.height = 40; const lg = ledCv.getContext("2d");
+  const lgr = lg.createLinearGradient(0, 0, 1024, 0); lgr.addColorStop(0, "#ff7a1a"); lgr.addColorStop(0.5, "#ffd23f"); lgr.addColorStop(1, "#ff7a1a");
+  lg.fillStyle = "#0a0e1c"; lg.fillRect(0, 0, 1024, 40); lg.fillStyle = lgr; lg.font = "italic 900 26px system-ui, 'Segoe UI', sans-serif"; lg.textBaseline = "middle";
+  lg.fillText("HOOPS 3D  •  1 ON 1 STREETBALL  •  NO REFS, NO RULES  •  ", 8, 21);
+  const ledTex = new THREE.CanvasTexture(ledCv); ledTex.colorSpace = THREE.SRGBColorSpace; ledTex.wrapS = THREE.RepeatWrapping; ledTex.repeat.set(3, 1);
   const led = new THREE.Mesh(new THREE.BoxGeometry(36, 0.7, 0.3), [mat("#14101f"), mat("#14101f"), mat("#14101f"), mat("#14101f"), new THREE.MeshBasicMaterial({ map: ledTex }), mat("#14101f")]);
   led.position.set(0, 0.35, -8.6); scene.add(led); crowd.led = ledTex;
   // the stands behind, stepping up, and the fans on them
@@ -136,8 +148,8 @@ let jumbo = null;
   scene.add(bodies, heads);
   Object.assign(crowd, { bodies, heads, n: fans });
   // the jumbotron over center court, showing the score
-  const jcv = document.createElement("canvas"); jcv.width = 64; jcv.height = 24;
-  const jt = new THREE.CanvasTexture(jcv); jt.magFilter = jt.minFilter = THREE.NearestFilter; jt.colorSpace = THREE.SRGBColorSpace;
+  const jcv = document.createElement("canvas"); jcv.width = 320; jcv.height = 120;
+  const jt = new THREE.CanvasTexture(jcv); jt.colorSpace = THREE.SRGBColorSpace;
   const jb = new THREE.Mesh(new THREE.BoxGeometry(4.4, 1.7, 4.4), [new THREE.MeshBasicMaterial({ map: jt }), new THREE.MeshBasicMaterial({ map: jt }), mat("#14101f"), mat("#14101f"), new THREE.MeshBasicMaterial({ map: jt }), new THREE.MeshBasicMaterial({ map: jt })]);
   jb.position.set(0, 9.6, -1); scene.add(jb);
   for (const x of [-1.6, 1.6]) { const c = new THREE.Mesh(new THREE.BoxGeometry(0.05, 4, 0.05), mat("#3a3550")); c.position.set(x, 12.4, -1); scene.add(c); }
@@ -145,13 +157,13 @@ let jumbo = null;
   // the lights up top, and their beams
   for (const x of [-10, -3.5, 3.5, 10]) {
     const l = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.3, 0.6), new THREE.MeshBasicMaterial({ color: "#fff4d8" })); l.position.set(x, 13, -3); scene.add(l);
-    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 3, 13, 10, 1, true), new THREE.MeshBasicMaterial({ color: "#fff2d6", transparent: true, opacity: 0.045, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 3, 13, 10, 1, true), new THREE.MeshBasicMaterial({ color: "#fff2d6", transparent: true, opacity: 0.03, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
     beam.position.set(x * 0.8, 6.5, -1.5); scene.add(beam); beams.push(beam);
   }
   // the hoops: padded base, pole, arm, glass, rim, net
   for (const s of [-1, 1]) {
     const pad = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1.4), mat("#3a3550")); pad.position.set(s * 15.4, 0.5, 0); pad.castShadow = true; scene.add(pad);
-    const padTop = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.15, 1.42), mat("#f53cd1")); padTop.position.set(s * 15.4, 0.95, 0); scene.add(padTop);
+    const padTop = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.15, 1.42), mat("#ff7a1a")); padTop.position.set(s * 15.4, 0.95, 0); scene.add(padTop);
     const pole = new THREE.Mesh(new THREE.BoxGeometry(0.22, 3.4, 0.22), mat("#6a6080")); pole.position.set(s * 15.2, 2.3, 0); pole.castShadow = true; scene.add(pole);
     const arm = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.16, 0.16), mat("#6a6080")); arm.position.set(s * 14.1, 3.7, 0); scene.add(arm);
     const board = new THREE.Group();
@@ -167,23 +179,24 @@ let jumbo = null;
 function drawJumbo() {
   const [a, b] = players, s = Math.ceil(clock), key = `${a?.score}|${b?.score}|${s}|${overtime}`;
   if (!a || key === jumbo.key) return;
-  jumbo.key = key; const g = jumbo.cv.getContext("2d");
-  g.fillStyle = "#05040a"; g.fillRect(0, 0, 64, 24); g.font = "bold 10px monospace"; g.textAlign = "center";
-  g.fillStyle = a.ch.col; g.fillText(String(a.score), 14, 14); g.fillStyle = b.ch.col; g.fillText(String(b.score), 50, 14);
-  g.fillStyle = "#ffe03c"; g.font = "8px monospace"; g.fillText(overtime ? "OT" : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`, 32, 21);
-  g.fillStyle = "#f53cd1"; g.fillRect(0, 0, 64, 1); g.fillRect(0, 23, 64, 1);
+  jumbo.key = key; const g = jumbo.cv.getContext("2d"), F = "system-ui, 'Segoe UI', sans-serif";
+  g.fillStyle = "#0a0e1c"; g.fillRect(0, 0, 320, 120); g.textAlign = "center"; g.textBaseline = "middle";
+  g.fillStyle = a.ch.col; g.fillRect(0, 0, 160, 8); g.fillStyle = b.ch.col; g.fillRect(160, 0, 160, 8);
+  g.font = `900 60px ${F}`; g.fillStyle = "#ffffff"; g.fillText(String(a.score), 80, 56); g.fillText(String(b.score), 240, 56);
+  g.font = `800 22px ${F}`; g.fillStyle = a.ch.col; g.fillText(a.name, 80, 100); g.fillStyle = b.ch.col; g.fillText(b.name, 240, 100);
+  g.fillStyle = "#ffd23f"; g.font = `800 26px ${F}`; g.fillText(overtime ? "OT" : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`, 160, 56);
   jumbo.tex.needsUpdate = true;
 }
 
 // ---------- the select stage: the six on a lit stage ----------
 const stageFigs = [];
 (function buildStage() {
-  stage.background = new THREE.Color("#0b0914");
+  stage.background = new THREE.Color("#0a0e1c");
   stage.add(new THREE.HemisphereLight("#c4bcff", "#3a2418", 0.9));
   const key = new THREE.DirectionalLight("#fff0d8", 1.6); key.position.set(3, 8, 8); key.castShadow = true; key.shadow.mapSize.set(512, 512);
   Object.assign(key.shadow.camera, { left: -6, right: 6, top: 4, bottom: -2, near: 1, far: 30 }); stage.add(key);
-  const floor = new THREE.Mesh(new THREE.CylinderGeometry(6.5, 6.8, 0.3, 24), mat("#221b34")); floor.position.y = -0.15; floor.receiveShadow = true; stage.add(floor);
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(6.6, 0.06, 4, 48), new THREE.MeshBasicMaterial({ color: "#f53cd1" })); rim.rotation.x = Math.PI / 2; rim.position.y = 0.02; stage.add(rim);
+  const floor = new THREE.Mesh(new THREE.CylinderGeometry(6.5, 6.8, 0.3, 48), mat("#1a2238")); floor.position.y = -0.15; floor.receiveShadow = true; stage.add(floor);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(6.6, 0.05, 6, 96), new THREE.MeshBasicMaterial({ color: "#ff7a1a" })); rim.rotation.x = Math.PI / 2; rim.position.y = 0.02; stage.add(rim);
   CHARS.forEach((ch, i) => {
     const b = makeBaller(ch); b.root.position.set((i - 2.5) * 1.35, 0, 0); b.root.rotation.y = -Math.PI / 2; stage.add(b.root);
     const spot = new THREE.Mesh(new THREE.CircleGeometry(0.6, 20), new THREE.MeshBasicMaterial({ color: ch.col, transparent: true, opacity: 0.35 }));
@@ -560,7 +573,8 @@ function trySpecial(p) {
   other(p).ai.dodge = Math.random() < TUNE.cpuDodge;
   beep(180, WIND_UP, "sawtooth", 0.045, 520); noise(WIND_UP, 0.06, 900);
   fx.impact({ slow: 0.25, punch: 0.4 }); fx.ring(p.x, p.z, p.ch.col, 2.2, 0.6);
-  cutinEl.innerHTML = `<i style="background:${p.ch.dark}"></i><b style="color:${p.ch.col}">${p.name}</b><span>${T(p.ch.special)}</span>`;
+  cutinEl.style.setProperty("--c", p.ch.col); cutinEl.style.setProperty("--d", p.ch.dark);
+  cutinEl.innerHTML = `<i></i><div><span class="tag">${T("SKILL")}</span><b>${T(p.ch.special)}</b><small>${p.name}</small></div>`;
   cutinEl.className = p.i ? "ui r on" : "ui on"; clearTimeout(cutinEl.t); cutinEl.t = setTimeout(() => (cutinEl.className = p.i ? "ui r" : "ui"), 900);
 }
 // what the target should do to get out of it right now (null: it can't reach him)
@@ -906,8 +920,9 @@ function showSelect() {
   centerEl.innerHTML = ""; document.getElementById("touch").style.display = "none"; document.getElementById("score").style.display = "none"; document.getElementById("bars").style.display = "none";
   for (const p of players) scene.remove(p.body.root);
   selEl.style.display = "flex"; document.getElementById("help").style.display = "none"; document.getElementById("viewB").style.display = "none"; mouse.target = null;
-  selEl.innerHTML = `<h1>${T("CHOOSE YOUR BALLER")}</h1><div id="tabs">${CHARS.map((c, i) => `<button class="tab" data-i="${i}" style="--c:${c.col}">${c.name}</button>`).join("")}</div>
-    <div id="card"></div><div id="selBtns"><button id="prevB">&lt;</button><button id="playB">${T("PLAY")}</button><button id="nextB">&gt;</button></div><small>${isTouch ? "" : LANG === "ko" ? KO.PICK : "< > OR A D TO PICK   F / ENTER TO PLAY"}</small>`;
+  selEl.innerHTML = `<header><span class="brand">HOOPS <em>3D</em></span><h1>${T("CHOOSE YOUR BALLER")}</h1></header>
+    <div id="tabs">${CHARS.map((c, i) => `<button class="tab" data-i="${i}" style="--c:${c.col}">${c.name}</button>`).join("")}</div>
+    <div id="card"></div><div id="selBtns"><button id="prevB" aria-label="prev">‹</button><button id="playB">${T("PLAY")}</button><button id="nextB" aria-label="next">›</button></div><small>${isTouch ? "" : LANG === "ko" ? KO.PICK : "← → OR A D TO PICK  ·  F / ENTER TO PLAY"}</small>`;
   selEl.querySelectorAll(".tab").forEach((b) => (b.onclick = () => { audio(); if (locked) return; if (pickI === +b.dataset.i) lockIn(); else { pickI = +b.dataset.i; sfx.click(); drawCard(); } }));
   document.getElementById("prevB").onclick = () => { audio(); if (!locked) { pickI = (pickI + 5) % 6; sfx.click(); drawCard(); } };
   document.getElementById("nextB").onclick = () => { audio(); if (!locked) { pickI = (pickI + 1) % 6; sfx.click(); drawCard(); } };
@@ -917,9 +932,13 @@ function showSelect() {
 function drawCard() {
   const ch = CHARS[pickI];
   selEl.querySelectorAll(".tab").forEach((b) => b.classList.toggle("on", +b.dataset.i === pickI));
-  document.getElementById("card").innerHTML = `<b style="color:${ch.col}">${ch.name}</b><i>${T(ch.title)}</i>
-    <div class="abil"><span>${T("PASSIVE")}</span><b style="color:${ch.col}">${T(ch.passive)}</b><em>${T(ch.pdesc)}</em><span>${T("DRIBBLE")}</span><b style="color:#ffffff">${T(SIG[ch.name].name)}</b><em>${T(SIG[ch.name].desc)}</em><span>${T("SKILL")}</span><b style="color:#ffe03c">${T(ch.special)}</b><em>${T(ch.sdesc)}</em></div>
-    <div class="stats">${STATS.map(([l, k]) => `<span>${T(l)}</span><span class="pips">${[0, 1, 2, 3, 4].map((j) => `<u style="background:${j < pips(ch[k]) ? ch.col : "#2a2440"}"></u>`).join("")}</span>`).join("")}</div>`;
+  selEl.style.setProperty("--c", ch.col);
+  document.getElementById("card").innerHTML = `<div class="who"><b>${ch.name}</b><i>${T(ch.title)}</i>
+      <div class="stats">${STATS.map(([l, k]) => `<span>${T(l)}</span><span class="sbar"><u style="width:${pips(ch[k]) * 20}%"></u></span>`).join("")}</div></div>
+    <div class="abil">
+      <div class="ab"><span class="tag">${T("PASSIVE")}</span><b>${T(ch.passive)}</b><em>${T(ch.pdesc)}</em></div>
+      <div class="ab"><span class="tag">${T("DRIBBLE")} · Q</span><b>${T(SIG[ch.name].name)}</b><em>${T(SIG[ch.name].desc)}</em></div>
+      <div class="ab sk"><span class="tag">${T("SKILL")} · X</span><b>${T(ch.special)}</b><em>${T(ch.sdesc)}</em></div></div>`;
 }
 function lockIn() {
   if (locked) return;
@@ -934,6 +953,7 @@ function startGame() {
   if (isTouch) document.getElementById("touch").style.display = "block";
   for (const p of players) scene.remove(p.body.root);
   players = [makePlayer(0, pickI), makePlayer(1, cpuI)];
+  document.getElementById("score").style.setProperty("--ca", players[0].ch.col); document.getElementById("score").style.setProperty("--cb", players[1].ch.col);
   document.getElementById("na").textContent = players[0].name; document.getElementById("na").style.color = players[0].ch.col;
   document.getElementById("nb").textContent = players[1].name; document.getElementById("nb").style.color = players[1].ch.col;
   newGame();
@@ -954,8 +974,9 @@ function endGame() {
   const [a, b] = players, win = a.score === b.score ? null : a.score > b.score ? a : b;
   if (win) { win.winner = true; other(win).loser = true; other(win).fallen = 999; }
   for (let i = 0; i < 6; i++) later(i * 0.2, () => fx.burst(rnd(-6, 6) + (win ? win.x * 0.5 : 0), 8, rnd(-3, 2), 40, ["#ff4a3a", "#ffe03c", "#5cc4ff", "#5ad84a", "#f53cd1", "#ffffff"], 3, 2.2, { g: 3, size: 0.12 }));
-  centerEl.innerHTML = `<div style="color:${win ? win.ch.col : "#fff"}">${win ? `${win.name} ${T("WINS")}` : T("DRAW")}</div><div>${a.score} - ${b.score}</div>
-    <div style="display:flex;gap:12px"><button id="again">${T("REMATCH")}</button><button id="change">${T("CHANGE BALLERS")}</button><a href="../">${T("BACK TO 2D")}</a></div>`;
+  centerEl.innerHTML = `<div class="result" style="--c:${win ? win.ch.col : "#ffffff"}"><span class="tag">FINAL</span><h2>${win ? `${win.name} ${T("WINS")}` : T("DRAW")}</h2>
+    <div class="final"><span style="color:${a.ch.col}">${a.name}</span><b>${a.score}</b><i>:</i><b>${b.score}</b><span style="color:${b.ch.col}">${b.name}</span></div>
+    <div class="row"><button id="again" class="primary">${T("REMATCH")}</button><button id="change">${T("CHANGE BALLERS")}</button><a href="../">${T("BACK TO 2D")}</a></div></div>`;
   document.getElementById("again").onclick = () => { audio(); for (const p of players) p.fallen = 0; newGame(); };
   document.getElementById("change").onclick = () => { audio(); showSelect(); };
 }
@@ -979,8 +1000,8 @@ function step(dt) {
   if (screen === "over") { for (const p of players) updatePlayer(p, NONE, dt); updateBall(dt); return; }
   if (phase === "countdown") {
     const n = 3 - Math.floor(stateT / 0.6);
-    centerEl.innerHTML = n > 0 ? `<div>${n}</div>` : `<div style="color:#ffe03c">GO!</div>`;
-    if (stateT > 2.2) { phase = "play"; centerEl.innerHTML = ""; sfx.whistle(); } else if (stateT < 1.8) return;
+    if (centerEl.dataset.n !== String(n)) { centerEl.dataset.n = String(n); centerEl.innerHTML = n > 0 ? `<div class="count">${n}</div>` : `<div class="count go">GO!</div>`; }
+    if (stateT > 2.2) { phase = "play"; centerEl.innerHTML = ""; centerEl.dataset.n = ""; sfx.whistle(); } else if (stateT < 1.8) return;
   }
   const ctrls = [phase === "play" ? (dbg.auto ? cpuControl(players[0], dt) : humanControl()) : NONE, phase === "play" ? cpuControl(players[1], dt) : NONE];
   players.forEach((p, i) => updatePlayer(p, ctrls[i], dt));
